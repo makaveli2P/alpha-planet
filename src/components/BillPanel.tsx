@@ -1,9 +1,10 @@
 import React from "react";
-import { ArrowLeft, Banknote, Check, CheckCircle2, Clock3, CreditCard, Minus, Plus, ReceiptText, RotateCcw, ShoppingBag, Timer, WalletCards } from "lucide-react";
-import type { PaymentMode, Session, TableConfig, TableHistory } from "../types";
-import { calculateSessionTotals } from "../lib/billing";
+import { ArrowLeft, Banknote, Check, CheckCircle2, Clock3, CreditCard, Minus, Plus, Printer, ReceiptText, RotateCcw, ShoppingBag, Timer, WalletCards } from "lucide-react";
+import type { PaymentMode, Session, SplitMode, TableConfig, TableHistory } from "../types";
+import { calculatePlayerBills, calculateSessionTotals, isPerPlayer } from "../lib/billing";
 import { formatDuration, formatMoney } from "../lib/format";
-import { ReceiptBody } from "./Receipt";
+import { PlayerRoster, PlayerSettlement, playerLabel } from "./PlayerBilling";
+import { ReceiptBody, PlayerReceiptBody } from "./Receipt";
 
 // A timestamp as a 24h "HH:MM" value, and re-stamping a timestamp's date with a
 // new HH:MM (minute precision) — used to correct a session's start/end at billing.
@@ -42,7 +43,18 @@ export function BillPanel({
   voidSession,
   setDiscount,
   toggleRoundOff,
-  changeQuantity
+  changeQuantity,
+  changeSplitMode,
+  changePlayerCount,
+  changePlayerName,
+  changePlayerFramesPlayed,
+  changeFrameCount,
+  assignOrder,
+  settlePlayerBill,
+  undoPlayerSettle,
+  leaveAndSettle,
+  rejoinPlayerBill,
+  rejoinPlayerStint
 }: {
   selectedTable: TableConfig;
   activeSession?: Session;
@@ -68,15 +80,41 @@ export function BillPanel({
   setDiscount: (value: number) => void;
   toggleRoundOff: () => void;
   changeQuantity: (lineId: string, delta: number) => void;
+  changeSplitMode: (mode: SplitMode) => void;
+  changePlayerCount: (count: number) => void;
+  changePlayerName: (playerId: string, name: string) => void;
+  changePlayerFramesPlayed: (playerId: string, framesPlayed: number) => void;
+  changeFrameCount: (count: number) => void;
+  assignOrder: (lineId: string, playerId?: string) => void;
+  settlePlayerBill: (playerId: string, mode: PaymentMode) => void;
+  undoPlayerSettle: (playerId: string) => void;
+  leaveAndSettle: (playerId: string, mode: PaymentMode) => void;
+  rejoinPlayerBill: (playerId: string) => void;
+  rejoinPlayerStint: (playerId: string) => void;
 }) {
   const activeTotals = activeSession ? calculateSessionTotals(activeSession, now) : undefined;
   const items = activeSession ? activeSession.orders.reduce((sum, line) => sum + line.quantity, 0) : 0;
 
+  // Snooker tables bill per individual by default; the counter and pool don't.
+  const isSnooker = !isCounter && selectedTable.game === "snooker";
+  const perPlayer = Boolean(activeSession) && isPerPlayer(activeSession as Session);
+  const players = activeSession?.players ?? [];
+  const playerBills = perPlayer ? calculatePlayerBills(activeSession as Session, now) : [];
+  // Once any player has checked out / paid, their share is frozen against the
+  // times and cafe lines — so those are locked to keep the committed money intact.
+  const hasCommitted = perPlayer && players.some((player) => player.leftAt || player.settledAt);
+
   // Which payment mode is being reviewed before it's recorded (receipt preview).
   const [pendingMode, setPendingMode] = React.useState<PaymentMode | null>(null);
+  // Which player's bill is being reviewed before recording their payment. The
+  // tender (Cash/UPI/Card) is chosen in the preview itself.
+  const [pendingPlayer, setPendingPlayer] = React.useState<{ playerId: string } | null>(null);
   React.useEffect(() => {
     setPendingMode(null);
+    setPendingPlayer(null);
   }, [activeSession?.id, activeSession?.endedAt]);
+
+  const pendingBill = pendingPlayer ? playerBills.find((bill) => bill.player.id === pendingPlayer.playerId) : undefined;
 
   return (
     <section className="billPanel">
@@ -159,6 +197,65 @@ export function BillPanel({
           )}
         </div>
         )
+      ) : pendingPlayer && pendingBill ? (
+        <>
+          <div className="receiptScroll">
+            <div className="receiptInline">
+              <PlayerReceiptBody
+                session={activeSession}
+                tables={tables}
+                sessions={sessions}
+                now={now}
+                bill={pendingBill}
+                paidLabel={pendingBill.settled ? "Paid" : "Pay"}
+              />
+            </div>
+          </div>
+          {pendingBill.settled ? (
+            <div className="playerViewActions">
+              <button className="ghostAction" onClick={() => setPendingPlayer(null)}>
+                <ArrowLeft size={16} /> Back
+              </button>
+              <button
+                className="ghostAction danger"
+                onClick={() => {
+                  undoPlayerSettle(pendingPlayer.playerId);
+                  setPendingPlayer(null);
+                }}
+              >
+                <RotateCcw size={15} /> Undo payment
+              </button>
+              <button className="settleAction" onClick={() => window.print()}>
+                <Printer size={16} /> Print
+              </button>
+            </div>
+          ) : (
+            <div className="playerPayActions">
+              {(["Cash", "UPI", "Card"] as PaymentMode[]).map((mode) => (
+                <button
+                  key={mode}
+                  className="settleAction"
+                  onClick={() => {
+                    // A still-active player is checking out early (leave + pay in
+                    // one step); once the table has ended it's a plain settle.
+                    if (!activeSession.endedAt && !pendingBill.player.leftAt) {
+                      leaveAndSettle(pendingPlayer.playerId, mode);
+                    } else {
+                      settlePlayerBill(pendingPlayer.playerId, mode);
+                    }
+                    setPendingPlayer(null);
+                  }}
+                >
+                  {mode === "Cash" ? <Banknote size={16} /> : mode === "Card" ? <CreditCard size={16} /> : <WalletCards size={16} />}
+                  {mode}
+                </button>
+              ))}
+              <button className="ghostAction" onClick={() => setPendingPlayer(null)}>
+                <ArrowLeft size={16} /> Back
+              </button>
+            </div>
+          )}
+        </>
       ) : pendingMode ? (
         <>
           <div className="receiptScroll">
@@ -195,7 +292,18 @@ export function BillPanel({
             </div>
           </div>
 
-          {activeSession.endedAt && !isCounter && (
+          <label className="nameField">
+            <span>Name</span>
+            <input
+              type="text"
+              value={activeSession.customerName ?? ""}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Add a name (optional)"
+              maxLength={40}
+            />
+          </label>
+
+          {activeSession.endedAt && !isCounter && !hasCommitted && (
             <div className="timesRow">
               <label className="timeField">
                 <span>Started</span>
@@ -222,18 +330,32 @@ export function BillPanel({
             </div>
           )}
 
-          <label className="nameField">
-            <span>Name</span>
-            <input
-              type="text"
-              value={activeSession.customerName ?? ""}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="Add a name (optional)"
-              maxLength={40}
+          {isSnooker && !activeSession.endedAt && (
+            <PlayerRoster
+              session={activeSession}
+              splitMode={activeSession.splitMode ?? "table"}
+              bills={playerBills}
+              changeSplitMode={changeSplitMode}
+              changePlayerCount={changePlayerCount}
+              changePlayerName={changePlayerName}
+              changePlayerFramesPlayed={changePlayerFramesPlayed}
+              changeFrameCount={changeFrameCount}
+              onCheckout={(playerId) => setPendingPlayer({ playerId })}
+              onOpen={(playerId) => setPendingPlayer({ playerId })}
+              onRejoinStint={rejoinPlayerStint}
+              onUndoLeave={rejoinPlayerBill}
             />
-          </label>
+          )}
 
-          {activeSession.endedAt && (
+          {perPlayer && activeSession.endedAt && (
+            <PlayerSettlement
+              bills={playerBills}
+              frameCount={activeSession.frameCount ?? 0}
+              onOpen={(playerId) => setPendingPlayer({ playerId })}
+            />
+          )}
+
+          {activeSession.endedAt && !perPlayer && (
             <div className="adjustments">
               <label className="adjustmentField">
                 <span>Discount</span>
@@ -263,32 +385,37 @@ export function BillPanel({
           )}
 
           <div className="billActions">
-            {!isCounter &&
-              (!activeSession.endedAt ? (
-                <button
-                  className={`warningAction${confirmingEnd ? " confirming" : ""}`}
-                  onClick={() => {
-                    if (confirmingEnd) {
-                      endSession();
-                      setConfirmingEnd(false);
-                    } else {
-                      setConfirmingEnd(true);
-                    }
-                  }}
-                >
-                  <ReceiptText size={17} /> {confirmingEnd ? "Tap again to confirm" : "End session"}
-                </button>
-              ) : (
-                <button className="ghostAction" onClick={reopenSession}>
-                  <RotateCcw size={17} /> Reopen
+            {!isCounter && !activeSession.endedAt && (
+              <button
+                className={`warningAction${confirmingEnd ? " confirming" : ""}`}
+                onClick={() => {
+                  if (confirmingEnd) {
+                    endSession();
+                    setConfirmingEnd(false);
+                  } else {
+                    setConfirmingEnd(true);
+                  }
+                }}
+              >
+                <ReceiptText size={17} /> {confirmingEnd ? "Tap again to confirm" : "End session"}
+              </button>
+            )}
+            {/* Reopen once billing — hidden after any player has paid or left. */}
+            {!isCounter && activeSession.endedAt && !players.some((player) => player.settledAt || player.leftAt) && (
+              <button className="ghostAction" onClick={reopenSession}>
+                <RotateCcw size={17} /> Reopen
+              </button>
+            )}
+            {/* Whole-bill settle buttons: only once the session is closed, and only
+                for single-payer bills — per-player bills settle in the split rows.
+                (This removes the greyed-out settle buttons during a live session.) */}
+            {activeSession.endedAt && !perPlayer &&
+              (["Cash", "UPI", "Card"] as PaymentMode[]).map((mode) => (
+                <button key={mode} className="settleAction" onClick={() => setPendingMode(mode)}>
+                  {mode === "Cash" ? <Banknote size={16} /> : mode === "Card" ? <CreditCard size={16} /> : <WalletCards size={16} />}
+                  {mode}
                 </button>
               ))}
-            {(["Cash", "UPI", "Card"] as PaymentMode[]).map((mode) => (
-              <button key={mode} className="settleAction" disabled={!activeSession.endedAt} onClick={() => setPendingMode(mode)}>
-                {mode === "Cash" ? <Banknote size={16} /> : mode === "Card" ? <CreditCard size={16} /> : <WalletCards size={16} />}
-                {mode}
-              </button>
-            ))}
             <button
               className={`ghostAction danger${confirmingVoid ? " confirming" : ""}`}
               onClick={() => {
@@ -311,24 +438,46 @@ export function BillPanel({
             {activeSession.orders.length === 0 ? (
               <p className="muted">No cafe items added yet.</p>
             ) : (
-              activeSession.orders.map((line) => (
+              activeSession.orders.map((line) => {
+                // A line assigned to a checked-out / settled player is locked —
+                // that player's bill is committed, so its items can't change.
+                const owner = line.playerId ? players.find((player) => player.id === line.playerId) : undefined;
+                const lineLocked = Boolean(owner && (owner.leftAt || owner.settledAt));
+                return (
                 <div className="orderLine" key={line.lineId}>
                   <div>
                     <strong>{line.name}</strong>
                     <span>{line.variant} · {formatMoney(line.unitPrice)}</span>
+                    {perPlayer && (
+                      <select
+                        className="orderAssign"
+                        value={line.playerId ?? ""}
+                        disabled={lineLocked}
+                        onChange={(event) => assignOrder(line.lineId, event.target.value || undefined)}
+                        aria-label={`Assign ${line.name} to a player`}
+                      >
+                        <option value="">Shared (split)</option>
+                        {players.map((player, index) => (
+                          <option key={player.id} value={player.id} disabled={Boolean(player.leftAt || player.settledAt)}>
+                            {playerLabel(player, index)}{player.leftAt || player.settledAt ? " (paid)" : ""}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </div>
                   <div className="qtyControls">
-                    <button onClick={() => changeQuantity(line.lineId, -1)} aria-label={`Remove one ${line.name}`}>
+                    <button onClick={() => changeQuantity(line.lineId, -1)} disabled={lineLocked} aria-label={`Remove one ${line.name}`}>
                       <Minus size={14} />
                     </button>
                     <span>{line.quantity}</span>
-                    <button onClick={() => changeQuantity(line.lineId, 1)} aria-label={`Add one ${line.name}`}>
+                    <button onClick={() => changeQuantity(line.lineId, 1)} disabled={lineLocked} aria-label={`Add one ${line.name}`}>
                       <Plus size={14} />
                     </button>
                   </div>
                   <strong>{formatMoney(line.unitPrice * line.quantity)}</strong>
                 </div>
-              ))
+                );
+              })
             )}
           </div>
         </>

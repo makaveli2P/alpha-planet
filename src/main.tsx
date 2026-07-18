@@ -26,21 +26,32 @@ import { createId } from "./lib/format";
 import { filterMenu, getMenuCategories } from "./lib/menu";
 import {
   addOrderToSession,
+  assignOrderToPlayer,
   changeOrderQuantity,
   createCounterOrder,
   createSession,
+  endPlayerSession,
   markSessionEnded,
   reopenEndedSession,
+  rejoinAsNewStint,
+  rejoinPlayer,
+  setPlayerFramesPlayed,
+  setPlayerName,
   setSessionDiscount,
   setSessionEnd,
+  setSessionFrameCount,
   setSessionName,
+  setSessionPlayerCount,
+  setSessionSplitMode,
   setSessionStart,
   settleEndedSession,
+  settlePlayer,
   toggleSessionRoundOff,
+  unsettlePlayer,
   voidCurrentSession
 } from "./lib/sessionActions";
 import { loadAppState, saveAppState } from "./lib/storage";
-import type { AppState, AppView, MenuItem, PaymentMode, Session, TableConfig } from "./types";
+import type { AppState, AppView, MenuItem, PaymentMode, Session, SplitMode, TableConfig } from "./types";
 import "./styles.css";
 
 // The cafe/takeaway station — a cafe-only order with no physical table.
@@ -172,7 +183,7 @@ function App() {
   }
 
   function startSession(table: TableConfig) {
-    const session = createSession(table, Date.now(), createId());
+    const session = createSession(table, Date.now(), createId(), createId);
 
     setState((current) => {
       if (getActiveSession(current.sessions, table.id)) return current;
@@ -229,6 +240,90 @@ function App() {
     setConfirmingEnd(false);
     setConfirmingVoid(false);
     setSettledToast({ label, total: totals.total, mode: paymentMode, tableId: selectedTable.id });
+  }
+
+  // ====== Per-player snooker billing handlers ======
+
+  function changeSplitMode(mode: SplitMode) {
+    if (!activeSession) return;
+    updateSession(activeSession.id, (session) => setSessionSplitMode(session, mode, createId));
+  }
+
+  function changePlayerCount(count: number) {
+    if (!activeSession) return;
+    updateSession(activeSession.id, (session) => setSessionPlayerCount(session, count, createId, Date.now()));
+  }
+
+  function changePlayerName(playerId: string, name: string) {
+    if (!activeSession) return;
+    updateSession(activeSession.id, (session) => setPlayerName(session, playerId, name));
+  }
+
+  function changePlayerFramesPlayed(playerId: string, framesPlayed: number) {
+    if (!activeSession) return;
+    updateSession(activeSession.id, (session) => setPlayerFramesPlayed(session, playerId, framesPlayed));
+  }
+
+  function changeFrameCount(count: number) {
+    if (!activeSession) return;
+    updateSession(activeSession.id, (session) => setSessionFrameCount(session, count));
+  }
+
+  function assignOrder(lineId: string, playerId?: string) {
+    if (!activeSession) return;
+    updateSession(activeSession.id, (session) => assignOrderToPlayer(session, lineId, playerId));
+  }
+
+  function settlePlayerBill(playerId: string, mode: PaymentMode) {
+    if (!activeSession || !activeSession.endedAt) return;
+    const when = Date.now();
+    const updated = settlePlayer(activeSession, playerId, mode, when);
+    updateSession(activeSession.id, () => updated);
+    // When the last player pays, the whole table closes — confirm like a settle.
+    if (updated.settledAt) {
+      const totals = calculateSessionTotals(activeSession, when);
+      const label = activeSession.customerName
+        ? `${selectedTable.name} · ${activeSession.customerName}`
+        : selectedTable.name;
+      setConfirmingEnd(false);
+      setConfirmingVoid(false);
+      setSettledToast({ label, total: totals.total, mode, tableId: selectedTable.id });
+    }
+  }
+
+  function undoPlayerSettle(playerId: string) {
+    if (!activeSession) return;
+    updateSession(activeSession.id, (session) => unsettlePlayer(session, playerId));
+  }
+
+  // Checking a player out = they leave AND pay in one step (freeze their share of
+  // the time so far, then record the tender). The table keeps running for the rest.
+  function leaveAndSettle(playerId: string, mode: PaymentMode) {
+    if (!activeSession || activeSession.endedAt) return;
+    const when = Date.now();
+    const left = endPlayerSession(activeSession, playerId, when);
+    const updated = settlePlayer(left, playerId, mode, when);
+    updateSession(activeSession.id, () => updated);
+    if (updated.settledAt) {
+      // That was the last person — the whole table is now closed.
+      const totals = calculateSessionTotals(activeSession, when);
+      const label = activeSession.customerName
+        ? `${selectedTable.name} · ${activeSession.customerName}`
+        : selectedTable.name;
+      setConfirmingEnd(false);
+      setConfirmingVoid(false);
+      setSettledToast({ label, total: totals.total, mode, tableId: selectedTable.id });
+    }
+  }
+
+  function rejoinPlayerBill(playerId: string) {
+    if (!activeSession) return;
+    updateSession(activeSession.id, (session) => rejoinPlayer(session, playerId));
+  }
+
+  function rejoinPlayerStint(playerId: string) {
+    if (!activeSession) return;
+    updateSession(activeSession.id, (session) => rejoinAsNewStint(session, playerId, createId, Date.now()));
   }
 
   function setName(value: string) {
@@ -359,6 +454,17 @@ function App() {
               setDiscount={setDiscount}
               toggleRoundOff={toggleRoundOff}
               changeQuantity={changeQuantity}
+              changeSplitMode={changeSplitMode}
+              changePlayerCount={changePlayerCount}
+              changePlayerName={changePlayerName}
+              changePlayerFramesPlayed={changePlayerFramesPlayed}
+              changeFrameCount={changeFrameCount}
+              assignOrder={assignOrder}
+              settlePlayerBill={settlePlayerBill}
+              undoPlayerSettle={undoPlayerSettle}
+              leaveAndSettle={leaveAndSettle}
+              rejoinPlayerBill={rejoinPlayerBill}
+              rejoinPlayerStint={rejoinPlayerStint}
             />
 
             <MenuPanel
@@ -375,7 +481,7 @@ function App() {
           </div>
         )}
 
-        {view === "dashboard" && <Dashboard metrics={metrics} sessions={state.sessions} tables={tables} now={now} />}
+        {view === "dashboard" && <Dashboard metrics={metrics} sessions={state.sessions} tables={tables} now={now} hideMoney={hideMoney} />}
         {view === "settings" && (
           <SettingsView
             tables={tables}
