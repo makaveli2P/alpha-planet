@@ -150,10 +150,26 @@ End-session and Clear-local-data both use a **tap-twice-within-3s confirm patter
 
 ### Dashboard view
 
-Scrolls internally. Sections (top-to-bottom):
-1. KPI row — 4 inline stats: Total sales / Table revenue / Kitchen revenue / Discounts.
-2. 2×2 insight grid — Most sought tables (by minutes), Famous kitchen items (by quantity), Peak hours (by sessions started in each hour), Payment modes (by total).
-3. Receipts list — last 8 settled, non-voided bills with table name, payment mode, time, duration, total.
+Scrolls internally. Charts are hand-built inline SVG / CSS (no chart library, no new
+deps); every mark is direct-labeled and has a legend (contrast relief on the tan
+`#e3d6ab` surface). Chart series colors are a validated slice of the ball-accent
+palette — payment Cash `#2f7a48` / UPI `#1b4a86` / Card `#b5601a`; mix Table
+`#1b4a86` / Cafe `#b5601a` / Takeaway `#5a3680` — validated with the dataviz
+palette checker on the dashboard surface (CVD + contrast gates pass). Honors the
+top-bar `hideMoney` toggle (masks every ₹, including the opened Receipt). Sections
+(top-to-bottom):
+
+1. **Hero band** (felt-blue, the one "loud" moment) — Anton total sales + caption
+   (`N bills · ₹gross gross · ₹X off`) beside **Money through the day**: a
+   single-series area of revenue by *start hour* with the peak hour dot-labeled.
+2. **Stat strip** — Avg session / Frames played (+avg) / Players served / Discounts / Takeaway orders. (Frames + players are the per-player-snooker units.)
+3. **Revenue mix donut** (Table / Cafe / Takeaway, gross in the hole) + **Tender ribbon** — a 100% stacked bar of Cash/UPI/Card with an "expected in drawer" (= cash) callout and a split-bill count (per-player bills paid across >1 tender).
+4. **Per-table utilization meters** — one fuel-gauge row per real table, sorted by ₹; fill = occupied ÷ open-so-far (shared denominator, clamped to midnight); snooker rows show frames; idle tables render at the bottom with an empty track.
+5. **Famous cafe items** (the one surviving text ranking) + **Recent settled bills** (last 8, per-player shows "Split", opens the Receipt).
+
+Metrics come from `calculateMetrics` (revenue attributed to start hour; revenue
+channels are mutually exclusive and pre-discount so they sum to a true gross;
+tender totals are per-player-aware; the counter is not double-counted).
 
 ### Rates view
 
