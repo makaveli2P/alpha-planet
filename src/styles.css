@@ -1500,6 +1500,7 @@ button {
 .orderLine > div:first-child {
   display: grid;
   gap: 3px;
+  min-width: 0;
 }
 
 .orderLine > div:first-child strong {
@@ -3260,14 +3261,396 @@ button {
   }
 }
 
-/* ====== Per-player snooker billing ====== */
+/* ====== Loser-pays snooker billing ====== */
 
-/* Roster (while running): split toggle, counts, names, sit-outs. */
+/* The loser-pays block (frame, roster or tabs, frame history) scrolls as one
+   region so the bill actions and items below keep their place at 1366×768. */
+.framesArea {
+  flex: 0 1 auto;
+  min-height: 150px;
+  overflow-y: auto;
+  padding-right: 2px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.billPanel .orderList {
+  min-height: 96px;
+}
+
+/* Roster (while running): players at the table, add field, live rate. */
 .rosterSection {
   display: grid;
-  gap: 10px;
-  padding: 11px 0;
+  gap: 6px;
+  padding: 8px 0 0;
+}
+
+.rosterTitle {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.rosterTitle h3 {
+  font-family: "Anton", sans-serif;
+  font-weight: 400;
+  font-size: 16px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--orange-ink);
+}
+
+.rosterTitle span {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  font-feature-settings: "tnum";
+}
+
+.rosterTab {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 64px;
+  justify-content: flex-end;
+  font-weight: 800;
+  font-size: 13px;
+  color: var(--felt-green-rim);
+  font-feature-settings: "tnum";
+}
+
+.rosterTab em {
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.leaveBtn.confirming {
+  width: auto;
+  padding: 0 9px;
+  background: var(--ball-red);
+  border-color: var(--ball-red);
+  color: var(--ball-cue);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.leaveBtn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.leaveBtn:disabled:hover {
+  background: transparent;
+  border-color: rgba(200, 58, 50, 0.32);
+}
+
+.rosterFoot {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: grid;
+  gap: 6px;
+  padding: 6px 0 4px;
+  background: var(--surface);
+}
+
+/* Name + Enter to seat a player; the field keeps focus between adds. */
+.addPlayer {
+  display: flex;
+  gap: 6px;
+}
+
+.addPlayer input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--paper-warm);
+  border: 1px solid var(--hairline-strong);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.addPlayer input:focus {
+  outline: none;
+  border-color: var(--ball-orange);
+  background: var(--ball-cue);
+}
+
+.addPlayer input::placeholder {
+  color: var(--ink-faint);
+}
+
+.addPlayer .settleAction.mini {
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 0 12px;
+}
+
+/* The live rate for the current headcount, under the roster. */
+.rateLine {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 6px;
+  border-top: 1px solid var(--hairline);
+}
+
+.rateLine > span {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+  min-width: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.rateLine em {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-soft);
+  font-feature-settings: "tnum";
+}
+
+.rateLine strong {
+  font-weight: 800;
+  font-size: 17px;
+  color: var(--brass);
+  font-feature-settings: "tnum";
+}
+
+.rateLine small {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  margin-left: 2px;
+}
+
+/* The frame in play (clock + End frame), or the last frame awaiting its lowest
+   scorer. A hairline band, not a card. */
+.frameBlock {
+  display: grid;
+  gap: 6px;
+  padding: 8px 0;
   border-bottom: 1px solid var(--hairline);
+}
+
+.frameHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.frameHead .eyebrow {
+  margin: 0 0 2px;
+  color: var(--felt-green-rim);
+}
+
+.frameBlock.picking .frameHead .eyebrow {
+  color: var(--orange-ink);
+}
+
+.frameHead h3 {
+  font-family: "Anton", sans-serif;
+  font-weight: 400;
+  font-size: 20px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-blue);
+  line-height: 1;
+}
+
+.frameSide {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.frameClock {
+  font-family: "Anton", sans-serif;
+  font-weight: 400;
+  font-size: 28px;
+  line-height: 1;
+  letter-spacing: 0.03em;
+  color: var(--ink);
+  font-feature-settings: "tnum";
+}
+
+.frameClock.stopped {
+  color: var(--ink-soft);
+}
+
+.frameMoney {
+  margin: 3px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  font-feature-settings: "tnum";
+}
+
+.frameMoney strong {
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.frameEndBtn {
+  min-height: 34px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 6px;
+  background: var(--ball-red);
+  color: var(--ball-cue);
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.frameEndBtn:hover {
+  background: #9a3527;
+}
+
+.loserPick {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+
+.loserPickTitle {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.loserPickTitle strong {
+  margin-left: 6px;
+  font-weight: 800;
+  color: var(--felt-green-rim);
+  font-feature-settings: "tnum";
+}
+
+.loserOptions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.loserBtn {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 6px;
+  background: var(--paper-warm);
+  color: var(--ink);
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.loserBtn svg {
+  color: var(--ball-red);
+}
+
+.loserBtn:hover {
+  background: var(--paper-edge);
+  border-color: var(--ball-red);
+}
+
+.loserPick .addPlayer {
+  width: 100%;
+}
+
+/* Finished frames grid: frame · players · billing · lowest scorer. */
+.frameHistory {
+  display: grid;
+  gap: 0;
+  padding: 10px 0;
+  border-top: 1px solid var(--hairline);
+}
+
+.frameHistory .rosterTitle {
+  margin-bottom: 4px;
+}
+
+.frameRow {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1.3fr);
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-top: 1px solid var(--hairline);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  font-feature-settings: "tnum";
+}
+
+.frameRow em {
+  display: block;
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ink-faint);
+}
+
+.frameRowHead {
+  border-top: 0;
+  padding: 2px 0 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.frameNo {
+  font-weight: 800;
+  color: var(--ink-blue);
+}
+
+.frameAmt {
+  font-weight: 800;
+  color: var(--felt-green-rim);
+}
+
+.frameRow .orderAssign {
+  margin-top: 0;
+  width: 100%;
+}
+
+.settleBlocked {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--orange-ink);
 }
 
 .splitToggle {
@@ -3298,76 +3681,9 @@ button {
   color: var(--ball-cue);
 }
 
-.rosterControls {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-
-.rosterControl {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  min-width: 0;
-  padding: 6px 8px;
-  border: 1px solid var(--hairline-strong);
-  border-radius: 6px;
-  background: var(--paper-warm);
-}
-
-.rosterControl > span {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ink-soft);
-  min-width: 0;
-}
-
-.miniStepper {
-  display: inline-grid;
-  grid-template-columns: 24px 24px 24px;
-  align-items: center;
-  text-align: center;
-  flex: 0 0 auto;
-}
-
-.miniStepper button {
-  width: 24px;
-  height: 28px;
-  border: 1px solid var(--hairline-strong);
-  border-radius: 6px;
-  color: var(--ink);
-  background: var(--paper-cream);
-  display: grid;
-  place-items: center;
-  padding: 0;
-  cursor: pointer;
-}
-
-.miniStepper button:hover:not(:disabled) {
-  background: var(--paper-edge);
-}
-
-.miniStepper button:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-
-.miniStepper span {
-  font-weight: 800;
-  font-size: 14px;
-  color: var(--ink);
-  font-feature-settings: "tnum";
-}
-
 .rosterPlayers {
   display: grid;
   gap: 6px;
-  max-height: 288px;
-  overflow-y: auto;
-  padding-right: 2px;
 }
 
 .rosterPlayer {
@@ -3410,22 +3726,6 @@ button {
   background: var(--ball-cue);
 }
 
-.rosterSatOut {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.rosterSatOut > span {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
-  white-space: nowrap;
-}
-
 /* Per-player early checkout: the "leave" control on an active roster row. */
 .leaveBtn {
   flex: 0 0 auto;
@@ -3457,39 +3757,12 @@ button {
   color: var(--orange-ink);
 }
 
-.rejoinBtn {
-  grid-column: 1 / -1;
-  justify-self: start;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 2px;
-  border: 1px solid var(--hairline-strong);
-  background: var(--paper-warm);
-  color: var(--ink-soft);
-  border-radius: 5px;
-  padding: 3px 9px;
-  font-family: inherit;
-  font-size: 11px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.rejoinBtn:hover {
-  background: var(--paper-edge);
-  color: var(--ink);
-}
-
-/* Settlement (while billing): per-player amounts + pay buttons. */
+/* Settlement (while billing): every tab + pay buttons. */
 .playerSettle {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 10px 2px 10px 0;
-  border-bottom: 1px solid var(--hairline);
+  padding: 10px 0;
 }
 
 .playerSettleTitle {
@@ -3606,7 +3879,8 @@ button {
   margin-top: 12px;
 }
 
-.playerPayActions .ghostAction {
+.playerPayActions .ghostAction,
+.playerPayActions .settleBlocked {
   grid-column: 1 / -1;
 }
 
@@ -3641,27 +3915,6 @@ button {
   color: var(--felt-green);
 }
 
-.undoPay {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  border: 1px solid var(--hairline-strong);
-  background: var(--paper-warm);
-  color: var(--ink-soft);
-  border-radius: 5px;
-  padding: 3px 9px;
-  font-family: inherit;
-  font-size: 11px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.undoPay:hover {
-  background: var(--paper-edge);
-  color: var(--ink);
-}
-
 .playerSettleFoot {
   display: flex;
   align-items: baseline;
@@ -3690,7 +3943,10 @@ button {
 /* Per-line cafe attribution in the order list. */
 .orderAssign {
   margin-top: 2px;
+  width: 100%;
+  min-width: 0;
   max-width: 100%;
+  text-overflow: ellipsis;
   background: var(--paper-warm);
   border: 1px solid var(--hairline-strong);
   border-radius: 4px;

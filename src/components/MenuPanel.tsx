@@ -1,5 +1,6 @@
 import { Minus, Plus, Search } from "lucide-react";
 import type { MenuItem, Session } from "../types";
+import { isFrameBilled, linePayer } from "../lib/billing";
 import { formatMoney, shortCategory } from "../lib/format";
 
 export function MenuPanel({
@@ -52,8 +53,13 @@ export function MenuPanel({
                   price.label === "Regular"
                     ? formatMoney(price.price)
                     : `${price.label} ${formatMoney(price.price)}`;
+                // On a loser-pays table the stepper drives the open frame's line —
+                // the one a new unit joins — never a line already billed.
                 const existingLine = activeSession?.orders.find(
-                  (line) => line.itemId === entry.id && line.variant === price.label
+                  (line) =>
+                    line.itemId === entry.id &&
+                    line.variant === price.label &&
+                    (!isFrameBilled(activeSession) || linePayer(activeSession, line).kind === "open")
                 );
                 if (existingLine) {
                   return (

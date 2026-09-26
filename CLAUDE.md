@@ -25,19 +25,39 @@ State lives in a single `AppState = { sessions: Session[] }` owned by `src/main.
 
 ### Session lifecycle
 
-`Available → Running (startedAt set) → Billing (endedAt set, no settledAt) → Settled (settledAt set)`. A void path sets both `settledAt` and `voidedAt`; voided sessions are excluded from metrics and `getTableHistory`. `ratePerHour` is **snapshotted onto the Session at start** — never re-read table config when generating a bill.
+`Available → Running (startedAt set) → Billing (endedAt set, no settledAt) → Settled (settledAt set)`. A void path sets both `settledAt` and `voidedAt`; voided sessions are excluded from metrics and `getTableHistory`. `ratePerHour` is **snapshotted onto the Session at start** — never re-read table config when generating a bill. Reopen moves every timestamp up to the end forward by the pause, so the pause is not charged.
 
 ### Billing math (`calculateSessionTotals` in `src/lib/billing.ts`)
 
+There are two bill shapes. `isFrameBilled(session)` (`splitMode === "frames"`) selects the second.
+
+**Whole table** (pool, the counter, a snooker party that pays as one, and old saved `splitMode: "per-player"` sessions). All rounding goes down, in the customer's favour:
+
 ```
-minutes       = max(1, ceil(((endedAt ?? now) - startedAt) / 60000))
-tableCharge   = ceil((minutes / 60) * ratePerHour)
+minutes       = max(1, floor(((endedAt ?? now) - startedAt) / 60000))
+tableCharge   = floor(minutes × ratePerHour / 60)
 subtotal      = tableCharge + Σ(unitPrice × qty)
 afterDiscount = max(0, subtotal − discount)
-total         = roundOffEnabled ? round(afterDiscount / 5) * 5 : afterDiscount
+total         = roundOffEnabled && afterDiscount ≥ 5 ? floor(afterDiscount / 5) * 5 : afterDiscount
 ```
 
 `roundOff` is **derived, not stored** — the session only stores the `roundOffEnabled` boolean. This avoids staleness as `now` ticks every second during a running session.
+
+**Loser pays** (the snooker default). Frames are continuous: frame 1 starts at `startedAt`, and each frame starts where the one before it ended. `session.frames` holds the finished frames (`{ endedAt?, loserId }`). The open frame runs to `endedAt ?? now`.
+
+```
+rate(t)        = ratePerHour + max(0, headcount(t) − BASE_PLAYERS) × extraPlayerRatePerHour
+headcount(t)   = players with joinedAt ≤ t < leftAt
+frameCharge    = floor(Σ segmentMs × rate / 3,600,000)      // floored once per frame
+player tab     = Σ (frameCharge + folded cafe) of frames they lost + their own cafe lines
+Σ tabs + open frame = subtotal                              // no discount or round-off
+```
+
+- `BASE_PLAYERS` (2) and `EXTRA_PLAYER_RATE_PER_HOUR` (₹30/hr = ₹0.5/min) live in `src/data/tables.ts`. `extraPlayerRatePerHour` is snapshotted onto the session, like `ratePerHour`.
+- End frame records the frame end at the tap (`endFrame`), so the price stops while staff choose. The frame then waits for its lowest scorer (`setFrameLoser`); "Keep playing" undoes it (`cancelEndFrame`). The lowest scorer pays the frame's table time and every cafe line ordered in it (the line gets `frameNo`). A cafe line with `playerId` goes to that player instead.
+- After End session, the open frame needs a lowest scorer (`billOpenFrame`) if it has ≥ 60 s of billable time or open cafe. A shorter time sliver is dropped. A last frame that ends with the session gets the same rule if its end time is corrected.
+- A player settles when their tab is final (they left, or the session ended with every frame billed). The session closes when every player who owes has paid.
+- Once any player has paid, the split toggle, time edits, reopen and void are locked, and so are the frames and lines on a paid tab.
 
 ### Hardcoded config
 

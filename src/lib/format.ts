@@ -36,6 +36,27 @@ export function formatMoney(value: number) {
   return formatter.format(value);
 }
 
+// Per-minute rates can land on paise (₹4.5/min), so keep up to 2 decimals here.
+const rateFormatter = new Intl.NumberFormat("en-IN", {
+  style: "currency",
+  currency: "INR",
+  maximumFractionDigits: 2
+});
+
+export function formatRatePerMinute(ratePerHour: number) {
+  return rateFormatter.format(ratePerHour / 60);
+}
+
+// A running clock: "12:04", or "1:02:09" past the hour.
+export function formatClock(ms: number) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = total % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${pad(m)}:${pad(sec)}`;
+}
+
 export function shortCategory(name: string) {
   return name.replace(/ (Planet|Mania)$/, "");
 }

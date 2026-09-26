@@ -90,21 +90,35 @@ type ClosedSession = Session & { settledAt: number };   // type predicate used i
 
 ### Billing math (`calculateSessionTotals` in `src/lib/billing.ts`)
 
+Whole-table bill (pool, the counter, a snooker party that pays as one, and old saved `splitMode: "per-player"` sessions). Every step rounds down, in the customer's favour:
+
 ```
-minutes        = max(1, ceil(((endedAt ?? now) - startedAt) / 60000))
-tableCharge    = ceil((minutes / 60) * ratePerHour)
+minutes        = max(1, floor(((endedAt ?? now) - startedAt) / 60000))
+tableCharge    = floor(minutes × ratePerHour / 60)
 kitchenTotal   = Σ(unitPrice × quantity)
 subtotal       = tableCharge + kitchenTotal
 afterDiscount  = max(0, subtotal − discount)
-if (roundOffEnabled):
-  target       = max(0, round(afterDiscount / 5) * 5)
-  roundOff     = target − afterDiscount         // can be negative or positive
+if (roundOffEnabled && afterDiscount >= 5):
+  target       = floor(afterDiscount / 5) * 5
+  roundOff     = target − afterDiscount         // zero or negative
   total        = target
 else:
   total        = afterDiscount
 ```
 
 **Round-off is derived, not stored.** This avoids staleness as `now` ticks every second and `minutes` increments. The session only stores the boolean `roundOffEnabled`.
+
+### Loser-pays snooker billing (`splitMode: "frames"`)
+
+Snooker tables start in loser-pays mode ("Whole table" switches a party back to one bill). The rules come from the owner's prompts (in `SnookerHallManager (1).jsx`), with the logic bugs from the audit of that prototype fixed:
+
+- **Frames are continuous.** Frame 1 starts with the table clock. Each frame starts where the previous one ended, so no table time goes unbilled. `session.frames = [{ endedAt?, loserId }]`.
+- **Rate by headcount.** The table's rate covers 2 players. Each extra player adds ₹30/hr (₹0.5/min) while they are at the table (`joinedAt` → `leftAt`). The rate changes only from the moment a player joins or leaves, never retroactively. A frame's table charge is priced second by second and floored once.
+- **End frame** records the frame end at the tap, so the price stops while staff choose. The next frame starts from that moment. The ended frame waits for its lowest scorer; "Keep playing" undoes the tap. The lowest scorer pays the frame's table time plus the cafe ordered during it (the lines get `frameNo`). A cafe line can also go to one player directly (`playerId`).
+- **Players** are added by name (Enter adds and keeps focus; the field and the live ₹/min rate stay pinned at the bottom of the roster). ✕ (tap twice) sets a player away: the rate drops, their tab stays, and they can pay while the table plays on. A mis-entry (under a minute, nothing on the tab) is deleted. The last player at a running table cannot leave — end the session instead. The table-level Name field shows only for a whole-table bill.
+- **End session** leaves the last frame waiting for its lowest scorer (unless it is under a minute with no cafe). Players still at the table settle after that. Each player pays their own tab (Cash / UPI / Card, own receipt). The table closes when every player who owes has paid.
+- **Locks:** once any player has paid, the split toggle, start/end edits, reopen and void are locked, and so are the frames and cafe lines on a paid tab.
+- **Invariant:** Σ player tabs + the open frame = the session subtotal. There is no discount or round-off in this mode.
 
 ### Session lifecycle
 
@@ -162,14 +176,14 @@ top-bar `hideMoney` toggle (masks every ₹, including the opened Receipt). Sect
 1. **Hero band** (felt-blue, the one "loud" moment) — Anton total sales + caption
    (`N bills · ₹gross gross · ₹X off`) beside **Money through the day**: a
    single-series area of revenue by *start hour* with the peak hour dot-labeled.
-2. **Stat strip** — Avg session / Frames played (+avg) / Players served / Discounts / Takeaway orders. (Frames + players are the per-player-snooker units.)
-3. **Revenue mix donut** (Table / Cafe / Takeaway, gross in the hole) + **Tender ribbon** — a 100% stacked bar of Cash/UPI/Card with an "expected in drawer" (= cash) callout and a split-bill count (per-player bills paid across >1 tender).
+2. **Stat strip** — Avg session / Frames played (+avg) / Players served / Discounts / Takeaway orders. (Frames + players are the loser-pays snooker units.)
+3. **Revenue mix donut** (Table / Cafe / Takeaway, gross in the hole) + **Tender ribbon** — a 100% stacked bar of Cash/UPI/Card with an "expected in drawer" (= cash) callout and a split-bill count (loser-pays bills paid across >1 tender).
 4. **Per-table utilization meters** — one fuel-gauge row per real table, sorted by ₹; fill = occupied ÷ open-so-far (shared denominator, clamped to midnight); snooker rows show frames; idle tables render at the bottom with an empty track.
-5. **Famous cafe items** (the one surviving text ranking) + **Recent settled bills** (last 8, per-player shows "Split", opens the Receipt).
+5. **Famous cafe items** (the one surviving text ranking) + **Recent settled bills** (last 8, a loser-pays bill paid in mixed tenders shows "Split", opens the Receipt).
 
 Metrics come from `calculateMetrics` (revenue attributed to start hour; revenue
 channels are mutually exclusive and pre-discount so they sum to a true gross;
-tender totals are per-player-aware; the counter is not double-counted).
+tender totals credit each loser-pays tab to its own tender; the counter is not double-counted).
 
 ### Rates view
 

@@ -26,22 +26,22 @@ import { createId } from "./lib/format";
 import { filterMenu, getMenuCategories } from "./lib/menu";
 import {
   addOrderToSession,
+  addPlayer,
   assignOrderToPlayer,
+  billOpenFrame,
+  cancelEndFrame,
   changeOrderQuantity,
   createCounterOrder,
   createSession,
-  endPlayerSession,
+  endFrame,
   markSessionEnded,
+  removePlayer,
   reopenEndedSession,
-  rejoinAsNewStint,
-  rejoinPlayer,
-  setPlayerFramesPlayed,
+  setFrameLoser,
   setPlayerName,
   setSessionDiscount,
   setSessionEnd,
-  setSessionFrameCount,
   setSessionName,
-  setSessionPlayerCount,
   setSessionSplitMode,
   setSessionStart,
   settleEndedSession,
@@ -83,7 +83,7 @@ function App() {
   const [hideMoney, setHideMoney] = React.useState(false);
   const [confirmingEnd, setConfirmingEnd] = React.useState(false);
   const [confirmingVoid, setConfirmingVoid] = React.useState(false);
-  const [settledToast, setSettledToast] = React.useState<{ label: string; total: number; mode: PaymentMode; tableId: string } | null>(null);
+  const [settledToast, setSettledToast] = React.useState<{ label: string; total: number; mode: PaymentMode | "Split"; tableId: string } | null>(null);
 
   React.useEffect(() => {
     saveAppState(state);
@@ -183,7 +183,7 @@ function App() {
   }
 
   function startSession(table: TableConfig) {
-    const session = createSession(table, Date.now(), createId(), createId);
+    const session = createSession(table, Date.now(), createId());
 
     setState((current) => {
       if (getActiveSession(current.sessions, table.id)) return current;
@@ -217,12 +217,18 @@ function App() {
 
   function changeQuantity(lineId: string, delta: number) {
     if (!activeSession) return;
-    updateSession(activeSession.id, (session) => changeOrderQuantity(session, lineId, delta));
+    const when = Date.now();
+    const updated = changeOrderQuantity(activeSession, lineId, delta, when);
+    updateSession(activeSession.id, () => updated);
+    announceIfClosed(updated, when);
   }
 
   function endSession() {
     if (!activeSession || activeSession.endedAt) return;
-    updateSession(activeSession.id, (session) => markSessionEnded(session, Date.now()));
+    const when = Date.now();
+    const updated = markSessionEnded(activeSession, when);
+    updateSession(activeSession.id, () => updated);
+    announceIfClosed(updated, when);
   }
 
   function reopenSession() {
@@ -242,16 +248,24 @@ function App() {
     setSettledToast({ label, total: totals.total, mode: paymentMode, tableId: selectedTable.id });
   }
 
-  // ====== Per-player snooker billing handlers ======
+  // ====== Loser-pays snooker billing handlers ======
 
   function changeSplitMode(mode: SplitMode) {
     if (!activeSession) return;
-    updateSession(activeSession.id, (session) => setSessionSplitMode(session, mode, createId));
+    updateSession(activeSession.id, (session) => setSessionSplitMode(session, mode));
   }
 
-  function changePlayerCount(count: number) {
+  function addTablePlayer(name: string) {
     if (!activeSession) return;
-    updateSession(activeSession.id, (session) => setSessionPlayerCount(session, count, createId, Date.now()));
+    updateSession(activeSession.id, (session) => addPlayer(session, name, createId, Date.now()));
+  }
+
+  function removeTablePlayer(playerId: string) {
+    if (!activeSession) return;
+    const when = Date.now();
+    const updated = removePlayer(activeSession, playerId, when);
+    updateSession(activeSession.id, () => updated);
+    announceIfClosed(updated, when);
   }
 
   function changePlayerName(playerId: string, name: string) {
@@ -259,71 +273,63 @@ function App() {
     updateSession(activeSession.id, (session) => setPlayerName(session, playerId, name));
   }
 
-  function changePlayerFramesPlayed(playerId: string, framesPlayed: number) {
+  // The frame ends at the tap; its lowest scorer is picked next.
+  function endTableFrame() {
     if (!activeSession) return;
-    updateSession(activeSession.id, (session) => setPlayerFramesPlayed(session, playerId, framesPlayed));
+    const when = Date.now();
+    updateSession(activeSession.id, (session) => endFrame(session, when, when));
   }
 
-  function changeFrameCount(count: number) {
+  function cancelTableEndFrame() {
     if (!activeSession) return;
-    updateSession(activeSession.id, (session) => setSessionFrameCount(session, count));
+    updateSession(activeSession.id, (session) => cancelEndFrame(session, Date.now()));
+  }
+
+  function billFrame(loserId: string) {
+    if (!activeSession) return;
+    const when = Date.now();
+    const updated = billOpenFrame(activeSession, loserId, when);
+    updateSession(activeSession.id, () => updated);
+    announceIfClosed(updated, when);
+  }
+
+  function changeFrameLoser(frameNo: number, loserId: string) {
+    if (!activeSession) return;
+    const when = Date.now();
+    const updated = setFrameLoser(activeSession, frameNo, loserId, when);
+    updateSession(activeSession.id, () => updated);
+    announceIfClosed(updated, when);
   }
 
   function assignOrder(lineId: string, playerId?: string) {
     if (!activeSession) return;
-    updateSession(activeSession.id, (session) => assignOrderToPlayer(session, lineId, playerId));
+    const when = Date.now();
+    const updated = assignOrderToPlayer(activeSession, lineId, playerId, when);
+    updateSession(activeSession.id, () => updated);
+    announceIfClosed(updated, when);
   }
 
   function settlePlayerBill(playerId: string, mode: PaymentMode) {
-    if (!activeSession || !activeSession.endedAt) return;
+    if (!activeSession) return;
     const when = Date.now();
     const updated = settlePlayer(activeSession, playerId, mode, when);
     updateSession(activeSession.id, () => updated);
-    // When the last player pays, the whole table closes — confirm like a settle.
-    if (updated.settledAt) {
-      const totals = calculateSessionTotals(activeSession, when);
-      const label = activeSession.customerName
-        ? `${selectedTable.name} · ${activeSession.customerName}`
-        : selectedTable.name;
-      setConfirmingEnd(false);
-      setConfirmingVoid(false);
-      setSettledToast({ label, total: totals.total, mode, tableId: selectedTable.id });
-    }
+    announceIfClosed(updated, when);
+  }
+
+  // When the last tab is paid the whole table closes — confirm like a settle.
+  function announceIfClosed(updated: Session, when: number) {
+    if (!activeSession || activeSession.settledAt || !updated.settledAt) return;
+    const totals = calculateSessionTotals(updated, when);
+    const label = updated.customerName ? `${selectedTable.name} · ${updated.customerName}` : selectedTable.name;
+    setConfirmingEnd(false);
+    setConfirmingVoid(false);
+    setSettledToast({ label, total: totals.total, mode: updated.paymentMode ?? "Split", tableId: selectedTable.id });
   }
 
   function undoPlayerSettle(playerId: string) {
     if (!activeSession) return;
     updateSession(activeSession.id, (session) => unsettlePlayer(session, playerId));
-  }
-
-  // Checking a player out = they leave AND pay in one step (freeze their share of
-  // the time so far, then record the tender). The table keeps running for the rest.
-  function leaveAndSettle(playerId: string, mode: PaymentMode) {
-    if (!activeSession || activeSession.endedAt) return;
-    const when = Date.now();
-    const left = endPlayerSession(activeSession, playerId, when);
-    const updated = settlePlayer(left, playerId, mode, when);
-    updateSession(activeSession.id, () => updated);
-    if (updated.settledAt) {
-      // That was the last person — the whole table is now closed.
-      const totals = calculateSessionTotals(activeSession, when);
-      const label = activeSession.customerName
-        ? `${selectedTable.name} · ${activeSession.customerName}`
-        : selectedTable.name;
-      setConfirmingEnd(false);
-      setConfirmingVoid(false);
-      setSettledToast({ label, total: totals.total, mode, tableId: selectedTable.id });
-    }
-  }
-
-  function rejoinPlayerBill(playerId: string) {
-    if (!activeSession) return;
-    updateSession(activeSession.id, (session) => rejoinPlayer(session, playerId));
-  }
-
-  function rejoinPlayerStint(playerId: string) {
-    if (!activeSession) return;
-    updateSession(activeSession.id, (session) => rejoinAsNewStint(session, playerId, createId, Date.now()));
   }
 
   function setName(value: string) {
@@ -455,16 +461,16 @@ function App() {
               toggleRoundOff={toggleRoundOff}
               changeQuantity={changeQuantity}
               changeSplitMode={changeSplitMode}
-              changePlayerCount={changePlayerCount}
+              addPlayer={addTablePlayer}
+              removePlayer={removeTablePlayer}
               changePlayerName={changePlayerName}
-              changePlayerFramesPlayed={changePlayerFramesPlayed}
-              changeFrameCount={changeFrameCount}
+              endFrame={endTableFrame}
+              cancelEndFrame={cancelTableEndFrame}
+              billOpenFrame={billFrame}
+              changeFrameLoser={changeFrameLoser}
               assignOrder={assignOrder}
               settlePlayerBill={settlePlayerBill}
               undoPlayerSettle={undoPlayerSettle}
-              leaveAndSettle={leaveAndSettle}
-              rejoinPlayerBill={rejoinPlayerBill}
-              rejoinPlayerStint={rejoinPlayerStint}
             />
 
             <MenuPanel

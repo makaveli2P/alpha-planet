@@ -14,3 +14,10 @@ export const tables: TableConfig[] = [
   { id: "t5", name: "Pool 2", type: "American Pool", game: "american-pool", orientation: "landscape", ratePerHour: 240, x: 6, y: 60, w: 38, h: 24, felt: "blue", rail: "black" },
   { id: "t6", name: "Pool 1", type: "Indian Pool", game: "indian-pool", orientation: "portrait", ratePerHour: 240, x: 50, y: 52, w: 18, h: 36, felt: "green", rail: "brown" }
 ];
+
+// Snooker loser-pays pricing: a table's rate covers up to BASE_PLAYERS players,
+// and each player above that adds ₹0.5/min (₹30/hr) while they are at the
+// table. The rate drops back the moment a player leaves. On the ₹240/hr tables
+// that is ₹4/min for 2 players, ₹4.5 for 3, ₹5 for 4.
+export const BASE_PLAYERS = 2;
+export const EXTRA_PLAYER_RATE_PER_HOUR = 30;

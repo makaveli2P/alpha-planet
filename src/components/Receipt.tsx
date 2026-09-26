@@ -1,7 +1,7 @@
 import React from "react";
 import { Printer, X } from "lucide-react";
 import type { PaymentMode, PlayerTotals, Session, TableConfig } from "../types";
-import { calculatePlayerBills, calculateSessionTotals, isPerPlayer } from "../lib/billing";
+import { calculatePlayerBills, calculateSessionTotals, getFrames, isFrameBilled, linePayer, paidPerPlayer } from "../lib/billing";
 import { billNumber, formatDuration, formatMoney } from "../lib/format";
 import { playerLabel } from "./PlayerBilling";
 
@@ -41,6 +41,7 @@ export function ReceiptBody({
   const clock = (date: Date) => date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const dateStr = settled.toLocaleDateString([], { day: "2-digit", month: "short", year: "numeric" });
   const billNo = billNumber(session, sessions, now);
+  const players = session.players ?? [];
 
   return (
     <>
@@ -69,11 +70,27 @@ export function ReceiptBody({
       <div className="receiptRule dashed" />
 
       <div className="receiptLines">
-        {!isKitchen && totals.tableCharge > 0 && (
-          <div className="receiptLine">
-            <span>Table time<em>{formatDuration(totals.minutes)} @ {money(session.ratePerHour)}/hr</em></span>
-            <span>{money(totals.tableCharge)}</span>
-          </div>
+        {!isKitchen && isFrameBilled(session) ? (
+          // Loser-pays: one table-time line per frame, named for who pays it.
+          getFrames(session, now).filter((frame) => frame.tableCharge > 0).map((frame) => {
+            const loser = players.find((player) => player.id === frame.loserId);
+            return (
+              <div className="receiptLine" key={`frame-${frame.no}`}>
+                <span>
+                  Frame {frame.no}{loser ? ` · ${playerLabel(loser, players.indexOf(loser))}` : frame.open ? " · open" : ""}
+                  <em>{formatDuration(frame.minutes)} · {frame.players} {frame.players === 1 ? "player" : "players"}</em>
+                </span>
+                <span>{money(frame.tableCharge)}</span>
+              </div>
+            );
+          })
+        ) : (
+          !isKitchen && totals.tableCharge > 0 && (
+            <div className="receiptLine">
+              <span>Table time<em>{formatDuration(totals.minutes)} @ {money(session.ratePerHour)}/hr</em></span>
+              <span>{money(totals.tableCharge)}</span>
+            </div>
+          )
         )}
         {session.orders.map((line) => (
           <div className="receiptLine" key={line.lineId}>
@@ -111,27 +128,29 @@ export function ReceiptBody({
         <span>{money(totals.total)}</span>
       </div>
       <div className="receiptPaid">
-        <span>{paidLabel} · {isPerPlayer(session) && !payMode ? "Split" : payMode ?? "—"}</span>
+        <span>{paidLabel} · {paidPerPlayer(session) && !payMode ? "Split" : payMode ?? "—"}</span>
         <span>{money(totals.total)}</span>
       </div>
 
-      {isPerPlayer(session) && (
+      {isFrameBilled(session) && (
         <>
           <div className="receiptRule dashed" />
-          <div className="receiptSplitHead">Split · per player</div>
+          <div className="receiptSplitHead">Tabs · loser pays</div>
           <div className="receiptLines">
-            {calculatePlayerBills(session, now).map((bill) => (
-              <div className="receiptLine" key={bill.player.id}>
-                <span>
-                  {playerLabel(bill.player, bill.index)}
-                  <em>
-                    {session.frameCount ? `${bill.framesPlayed}/${session.frameCount} frames · ` : ""}
-                    {bill.player.paymentMode ?? "unpaid"}
-                  </em>
-                </span>
-                <span>{money(bill.total)}</span>
-              </div>
-            ))}
+            {calculatePlayerBills(session, now)
+              .filter((bill) => bill.total > 0 || bill.settled)
+              .map((bill) => (
+                <div className="receiptLine" key={bill.player.id}>
+                  <span>
+                    {playerLabel(bill.player, bill.index)}
+                    <em>
+                      {bill.framesLost > 0 ? `${bill.framesLost} ${bill.framesLost === 1 ? "frame" : "frames"} lost · ` : ""}
+                      {bill.player.paymentMode ?? "unpaid"}
+                    </em>
+                  </span>
+                  <span>{money(bill.total)}</span>
+                </div>
+              ))}
           </div>
         </>
       )}
@@ -146,9 +165,10 @@ export function ReceiptBody({
   );
 }
 
-// A single player's receipt — their frame-share of the table time plus their
-// own and shared cafe items. Bill number carries the session number with a
-// player suffix (…-001-A). Used in the bill panel's per-player pay preview.
+// A single player's receipt on a loser-pays table — the frames they lost (table
+// time + the cafe folded into each) and their own cafe lines. Bill number
+// carries the session number with a player suffix (…-001-A). Used in the bill
+// panel's per-player pay preview.
 export function PlayerReceiptBody({
   session,
   tables,
@@ -168,21 +188,27 @@ export function PlayerReceiptBody({
 }) {
   const table = tables.find((entry) => entry.id === session.tableId);
   const name = table?.name ?? session.tableId;
-  const totals = calculateSessionTotals(session, now);
   const payMode = mode ?? bill.player.paymentMode;
-  const frameCount = Math.max(0, Math.floor(session.frameCount ?? 0));
-  // A player who checked out early is billed to their leave time, not the table's.
-  const leftEarly = Boolean(bill.player.leftAt);
-  const minutes = leftEarly ? Math.max(0, Math.floor(bill.player.frozenMinutes ?? totals.minutes)) : totals.minutes;
+  const lost = getFrames(session, now).filter((frame) => !frame.open && frame.loserId === bill.player.id);
+  const lostNos = new Set(lost.map((frame) => frame.no));
 
-  const started = new Date(bill.player.joinedAt ?? session.startedAt);
-  // For an active player being checked out (not frozen yet), "out" is now.
-  const ended = new Date(bill.player.leftAt ?? session.endedAt ?? session.settledAt ?? now);
-  const settled = new Date(session.settledAt ?? bill.player.leftAt ?? session.endedAt ?? now);
-  const clock = (date: Date) => date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const inAt = Math.max(session.startedAt, bill.player.joinedAt ?? session.startedAt);
+  const outAt = bill.player.leftAt ?? session.endedAt ?? now;
+  const minutes = Math.max(0, Math.floor((outAt - inAt) / 60000));
+  const settled = new Date(bill.player.settledAt ?? session.settledAt ?? outAt);
+  const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const dateStr = settled.toLocaleDateString([], { day: "2-digit", month: "short", year: "numeric" });
   const billNo = `${billNumber(session, sessions, now)}-${String.fromCharCode(65 + bill.index)}`;
-  const ownLines = session.orders.filter((line) => line.playerId === bill.player.id);
+  const frameLines = session.orders.filter((line) => {
+    const payer = linePayer(session, line);
+    return payer.kind === "frame" && lostNos.has(payer.frameNo);
+  });
+  const ownLines = session.orders.filter((line) => {
+    const payer = linePayer(session, line);
+    return payer.kind === "player" && payer.playerId === bill.player.id;
+  });
+  const itemNote = (line: Session["orders"][number]) =>
+    `${line.variant !== "Regular" ? `${line.variant} · ` : ""}${line.quantity} × ${formatMoney(line.unitPrice)}`;
 
   return (
     <>
@@ -198,34 +224,40 @@ export function PlayerReceiptBody({
         <div><span>Bill no.</span><span>{billNo}</span></div>
         <div><span>Date</span><span>{dateStr}</span></div>
         <div><span>Table</span><span>{name} · {playerLabel(bill.player, bill.index)}</span></div>
-        <div><span>In / Out</span><span>{clock(started)} – {clock(ended)}</span></div>
-        <div><span>Duration</span><span>{formatDuration(minutes)}{leftEarly ? " · left early" : ""}</span></div>
+        <div><span>In / Out</span><span>{clock(inAt)} – {clock(outAt)}</span></div>
+        <div><span>At the table</span><span>{formatDuration(minutes)}{bill.player.leftAt ? " · left early" : ""}</span></div>
       </div>
 
       <div className="receiptRule dashed" />
 
       <div className="receiptLines">
-        {bill.tableShare > 0 && (
-          <div className="receiptLine">
-            <span>Table time<em>{frameCount > 0 ? `${bill.framesPlayed} of ${frameCount} frames` : "even split"}</em></span>
-            <span>{formatMoney(bill.tableShare)}</span>
+        {lost.map((frame) => (
+          <div className="receiptLine" key={`frame-${frame.no}`}>
+            <span>
+              Frame {frame.no} · lost
+              <em>{formatDuration(frame.minutes)} · {frame.players} {frame.players === 1 ? "player" : "players"}</em>
+            </span>
+            <span>{formatMoney(frame.tableCharge)}</span>
           </div>
-        )}
-        {ownLines.map((line) => (
+        ))}
+        {frameLines.map((line) => (
           <div className="receiptLine" key={line.lineId}>
             <span>
               {line.name}
-              <em>{line.variant !== "Regular" ? `${line.variant} · ` : ""}{line.quantity} × {formatMoney(line.unitPrice)}</em>
+              <em>Frame {line.frameNo} · {itemNote(line)}</em>
             </span>
             <span>{formatMoney(line.unitPrice * line.quantity)}</span>
           </div>
         ))}
-        {bill.sharedCafeShare > 0 && (
-          <div className="receiptLine">
-            <span>Shared cafe<em>split share</em></span>
-            <span>{formatMoney(bill.sharedCafeShare)}</span>
+        {ownLines.map((line) => (
+          <div className="receiptLine" key={line.lineId}>
+            <span>
+              {line.name}
+              <em>{itemNote(line)}</em>
+            </span>
+            <span>{formatMoney(line.unitPrice * line.quantity)}</span>
           </div>
-        )}
+        ))}
         {bill.total === 0 && (
           <div className="receiptLine"><span>No charges</span><span>{formatMoney(0)}</span></div>
         )}
