@@ -168,6 +168,7 @@ export function SettingsView({
       <div className="policyBox">
         <h3>Billing policy</h3>
         <p>Billed to the minute against the rate stored when the session started. Editing a rate or price only affects new sessions and orders.</p>
+        <p>Snooker is loser-pays: each frame's table time, plus the cafe ordered during it, goes on the lowest scorer's tab. A table's rate covers 2 players; each extra player adds ₹30/hr (₹0.5/min) while they are at the table.</p>
         <button
           type="button"
           className={`ghostAction${confirmingClear ? " confirming" : ""}`}

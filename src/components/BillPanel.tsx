@@ -1,9 +1,9 @@
 import React from "react";
 import { ArrowLeft, Banknote, Check, CheckCircle2, Clock3, CreditCard, Minus, Plus, Printer, ReceiptText, RotateCcw, ShoppingBag, Timer, WalletCards } from "lucide-react";
 import type { PaymentMode, Session, SplitMode, TableConfig, TableHistory } from "../types";
-import { calculatePlayerBills, calculateSessionTotals, isPerPlayer } from "../lib/billing";
+import { calculatePlayerBills, calculateSessionTotals, getFrames, isFrameBilled, isTabFinal, linePayer, linePayerId } from "../lib/billing";
 import { formatDuration, formatMoney } from "../lib/format";
-import { PlayerRoster, PlayerSettlement, playerLabel } from "./PlayerBilling";
+import { FrameBlock, FrameHistory, FrameRoster, PlayerSettlement, playerLabel } from "./PlayerBilling";
 import { ReceiptBody, PlayerReceiptBody } from "./Receipt";
 
 // A timestamp as a 24h "HH:MM" value, and re-stamping a timestamp's date with a
@@ -45,16 +45,16 @@ export function BillPanel({
   toggleRoundOff,
   changeQuantity,
   changeSplitMode,
-  changePlayerCount,
+  addPlayer,
+  removePlayer,
   changePlayerName,
-  changePlayerFramesPlayed,
-  changeFrameCount,
+  endFrame,
+  cancelEndFrame,
+  billOpenFrame,
+  changeFrameLoser,
   assignOrder,
   settlePlayerBill,
-  undoPlayerSettle,
-  leaveAndSettle,
-  rejoinPlayerBill,
-  rejoinPlayerStint
+  undoPlayerSettle
 }: {
   selectedTable: TableConfig;
   activeSession?: Session;
@@ -67,7 +67,7 @@ export function BillPanel({
   setName: (value: string) => void;
   setStartTime: (ms: number) => void;
   setEndTime: (ms: number) => void;
-  settledInfo?: { label: string; total: number; mode: PaymentMode };
+  settledInfo?: { label: string; total: number; mode: PaymentMode | "Split" };
   confirmingEnd: boolean;
   setConfirmingEnd: (value: boolean) => void;
   confirmingVoid: boolean;
@@ -81,32 +81,33 @@ export function BillPanel({
   toggleRoundOff: () => void;
   changeQuantity: (lineId: string, delta: number) => void;
   changeSplitMode: (mode: SplitMode) => void;
-  changePlayerCount: (count: number) => void;
+  addPlayer: (name: string) => void;
+  removePlayer: (playerId: string) => void;
   changePlayerName: (playerId: string, name: string) => void;
-  changePlayerFramesPlayed: (playerId: string, framesPlayed: number) => void;
-  changeFrameCount: (count: number) => void;
+  endFrame: () => void;
+  cancelEndFrame: () => void;
+  billOpenFrame: (loserId: string) => void;
+  changeFrameLoser: (frameNo: number, loserId: string) => void;
   assignOrder: (lineId: string, playerId?: string) => void;
   settlePlayerBill: (playerId: string, mode: PaymentMode) => void;
   undoPlayerSettle: (playerId: string) => void;
-  leaveAndSettle: (playerId: string, mode: PaymentMode) => void;
-  rejoinPlayerBill: (playerId: string) => void;
-  rejoinPlayerStint: (playerId: string) => void;
 }) {
   const activeTotals = activeSession ? calculateSessionTotals(activeSession, now) : undefined;
   const items = activeSession ? activeSession.orders.reduce((sum, line) => sum + line.quantity, 0) : 0;
 
-  // Snooker tables bill per individual by default; the counter and pool don't.
+  // Snooker tables are loser-pays by default; the counter and pool never are.
   const isSnooker = !isCounter && selectedTable.game === "snooker";
-  const perPlayer = Boolean(activeSession) && isPerPlayer(activeSession as Session);
+  const frameBilled = Boolean(activeSession) && isFrameBilled(activeSession as Session);
   const players = activeSession?.players ?? [];
-  const playerBills = perPlayer ? calculatePlayerBills(activeSession as Session, now) : [];
-  // Once any player has checked out / paid, their share is frozen against the
-  // times and cafe lines — so those are locked to keep the committed money intact.
-  const hasCommitted = perPlayer && players.some((player) => player.leftAt || player.settledAt);
+  const playerBills = frameBilled ? calculatePlayerBills(activeSession as Session, now) : [];
+  const finishedFrames = frameBilled ? getFrames(activeSession as Session, now).filter((frame) => !frame.open && !frame.awaiting) : [];
+  // Once anyone has paid, their tab is priced against the times, frames and
+  // cafe lines — so those are locked to keep the collected money intact.
+  const anyPaid = players.some((player) => player.settledAt);
 
   // Which payment mode is being reviewed before it's recorded (receipt preview).
   const [pendingMode, setPendingMode] = React.useState<PaymentMode | null>(null);
-  // Which player's bill is being reviewed before recording their payment. The
+  // Which player's tab is being reviewed before recording their payment. The
   // tender (Cash/UPI/Card) is chosen in the preview itself.
   const [pendingPlayer, setPendingPlayer] = React.useState<{ playerId: string } | null>(null);
   React.useEffect(() => {
@@ -115,6 +116,11 @@ export function BillPanel({
   }, [activeSession?.id, activeSession?.endedAt]);
 
   const pendingBill = pendingPlayer ? playerBills.find((bill) => bill.player.id === pendingPlayer.playerId) : undefined;
+  // The tab can stop being final while its preview is open (say, an item added
+  // to the frame left open) — then the tenders wait.
+  const canPayPending = Boolean(
+    activeSession && pendingBill && pendingBill.total > 0 && isTabFinal(activeSession, pendingBill.player, now)
+  );
 
   return (
     <section className="billPanel">
@@ -231,18 +237,14 @@ export function BillPanel({
             </div>
           ) : (
             <div className="playerPayActions">
+              {!canPayPending && <p className="settleBlocked">Bill the open frame first. This tab can still change.</p>}
               {(["Cash", "UPI", "Card"] as PaymentMode[]).map((mode) => (
                 <button
                   key={mode}
                   className="settleAction"
+                  disabled={!canPayPending}
                   onClick={() => {
-                    // A still-active player is checking out early (leave + pay in
-                    // one step); once the table has ended it's a plain settle.
-                    if (!activeSession.endedAt && !pendingBill.player.leftAt) {
-                      leaveAndSettle(pendingPlayer.playerId, mode);
-                    } else {
-                      settlePlayerBill(pendingPlayer.playerId, mode);
-                    }
+                    settlePlayerBill(pendingPlayer.playerId, mode);
                     setPendingPlayer(null);
                   }}
                 >
@@ -292,18 +294,22 @@ export function BillPanel({
             </div>
           </div>
 
-          <label className="nameField">
-            <span>Name</span>
-            <input
-              type="text"
-              value={activeSession.customerName ?? ""}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="Add a name (optional)"
-              maxLength={40}
-            />
-          </label>
+          {/* A loser-pays table names each player instead; the party name is
+              for a whole-table bill (and keeps its room for the roster). */}
+          {!frameBilled && (
+            <label className="nameField">
+              <span>Name</span>
+              <input
+                type="text"
+                value={activeSession.customerName ?? ""}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="Add a name (optional)"
+                maxLength={40}
+              />
+            </label>
+          )}
 
-          {activeSession.endedAt && !isCounter && !hasCommitted && (
+          {activeSession.endedAt && !isCounter && !anyPaid && (
             <div className="timesRow">
               <label className="timeField">
                 <span>Started</span>
@@ -330,32 +336,52 @@ export function BillPanel({
             </div>
           )}
 
-          {isSnooker && !activeSession.endedAt && (
-            <PlayerRoster
-              session={activeSession}
-              splitMode={activeSession.splitMode ?? "table"}
-              bills={playerBills}
-              changeSplitMode={changeSplitMode}
-              changePlayerCount={changePlayerCount}
-              changePlayerName={changePlayerName}
-              changePlayerFramesPlayed={changePlayerFramesPlayed}
-              changeFrameCount={changeFrameCount}
-              onCheckout={(playerId) => setPendingPlayer({ playerId })}
-              onOpen={(playerId) => setPendingPlayer({ playerId })}
-              onRejoinStint={rejoinPlayerStint}
-              onUndoLeave={rejoinPlayerBill}
-            />
+          {isSnooker && !activeSession.endedAt && !anyPaid && (
+            <div className="splitToggle" role="group" aria-label="Billing split">
+              <button type="button" className={frameBilled ? "active" : ""} aria-pressed={frameBilled} onClick={() => changeSplitMode("frames")}>
+                Loser pays
+              </button>
+              <button type="button" className={!frameBilled ? "active" : ""} aria-pressed={!frameBilled} onClick={() => changeSplitMode("table")}>
+                Whole table
+              </button>
+            </div>
           )}
 
-          {perPlayer && activeSession.endedAt && (
-            <PlayerSettlement
-              bills={playerBills}
-              frameCount={activeSession.frameCount ?? 0}
-              onOpen={(playerId) => setPendingPlayer({ playerId })}
-            />
+          {frameBilled && (
+            <div className="framesArea">
+              <FrameBlock
+                session={activeSession}
+                now={now}
+                onEndFrame={endFrame}
+                onCancelEnd={cancelEndFrame}
+                onPickLoser={changeFrameLoser}
+                onBillOpen={billOpenFrame}
+                onAddPlayer={addPlayer}
+              />
+              {activeSession.endedAt ? (
+                <PlayerSettlement
+                  session={activeSession}
+                  now={now}
+                  bills={playerBills}
+                  onOpen={(playerId) => setPendingPlayer({ playerId })}
+                  onRemovePlayer={removePlayer}
+                />
+              ) : (
+                <FrameRoster
+                  session={activeSession}
+                  now={now}
+                  bills={playerBills}
+                  onAddPlayer={addPlayer}
+                  onRemovePlayer={removePlayer}
+                  onRenamePlayer={changePlayerName}
+                  onOpen={(playerId) => setPendingPlayer({ playerId })}
+                />
+              )}
+              <FrameHistory session={activeSession} frames={finishedFrames} onChangeLoser={changeFrameLoser} />
+            </div>
           )}
 
-          {activeSession.endedAt && !perPlayer && (
+          {activeSession.endedAt && !frameBilled && (
             <div className="adjustments">
               <label className="adjustmentField">
                 <span>Discount</span>
@@ -400,35 +426,38 @@ export function BillPanel({
                 <ReceiptText size={17} /> {confirmingEnd ? "Tap again to confirm" : "End session"}
               </button>
             )}
-            {/* Reopen once billing — hidden after any player has paid or left. */}
-            {!isCounter && activeSession.endedAt && !players.some((player) => player.settledAt || player.leftAt) && (
+            {/* Reopen once billing — hidden after any player has paid. */}
+            {!isCounter && activeSession.endedAt && !anyPaid && (
               <button className="ghostAction" onClick={reopenSession}>
                 <RotateCcw size={17} /> Reopen
               </button>
             )}
             {/* Whole-bill settle buttons: only once the session is closed, and only
-                for single-payer bills — per-player bills settle in the split rows.
+                for single-payer bills — loser-pays tabs settle in their own rows.
                 (This removes the greyed-out settle buttons during a live session.) */}
-            {activeSession.endedAt && !perPlayer &&
+            {activeSession.endedAt && !frameBilled &&
               (["Cash", "UPI", "Card"] as PaymentMode[]).map((mode) => (
                 <button key={mode} className="settleAction" onClick={() => setPendingMode(mode)}>
                   {mode === "Cash" ? <Banknote size={16} /> : mode === "Card" ? <CreditCard size={16} /> : <WalletCards size={16} />}
                   {mode}
                 </button>
               ))}
-            <button
-              className={`ghostAction danger${confirmingVoid ? " confirming" : ""}`}
-              onClick={() => {
-                if (confirmingVoid) {
-                  voidSession();
-                  setConfirmingVoid(false);
-                } else {
-                  setConfirmingVoid(true);
-                }
-              }}
-            >
-              {confirmingVoid ? "Tap again to void" : "Void bill"}
-            </button>
+            {/* A loser-pays table with payments taken can't be voided — undo them first. */}
+            {!(frameBilled && anyPaid) && (
+              <button
+                className={`ghostAction danger${confirmingVoid ? " confirming" : ""}`}
+                onClick={() => {
+                  if (confirmingVoid) {
+                    voidSession();
+                    setConfirmingVoid(false);
+                  } else {
+                    setConfirmingVoid(true);
+                  }
+                }}
+              >
+                {confirmingVoid ? "Tap again to void" : "Void bill"}
+              </button>
+            )}
           </div>
 
           <div className="orderList">
@@ -439,27 +468,37 @@ export function BillPanel({
               <p className="muted">No cafe items added yet.</p>
             ) : (
               activeSession.orders.map((line) => {
-                // A line assigned to a checked-out / settled player is locked —
-                // that player's bill is committed, so its items can't change.
-                const owner = line.playerId ? players.find((player) => player.id === line.playerId) : undefined;
-                const lineLocked = Boolean(owner && (owner.leftAt || owner.settledAt));
+                // A line on a paid tab is locked — that money is collected.
+                const payerId = frameBilled ? linePayerId(activeSession, line) : undefined;
+                const lineLocked = Boolean(payerId && players.find((player) => player.id === payerId)?.settledAt);
+                const payer = frameBilled ? linePayer(activeSession, line) : undefined;
+                // What "no player" means for this line: the lowest scorer of the
+                // frame it was folded into, else of the frame still open.
+                const frames = activeSession.frames ?? [];
+                const stampedFrame = line.frameNo != null && line.frameNo >= 1 && line.frameNo <= frames.length ? line.frameNo : undefined;
+                const stampedLoser = stampedFrame ? players.find((player) => player.id === frames[stampedFrame - 1].loserId) : undefined;
+                const frameOption = stampedFrame
+                  ? `Frame ${stampedFrame} · ${stampedLoser ? playerLabel(stampedLoser, players.indexOf(stampedLoser)) : "lowest scorer"}${stampedLoser?.settledAt ? " (paid)" : ""}`
+                  : activeSession.endedAt
+                    ? "Unassigned — pick who pays"
+                    : "This frame's lowest scorer";
                 return (
                 <div className="orderLine" key={line.lineId}>
                   <div>
                     <strong>{line.name}</strong>
                     <span>{line.variant} · {formatMoney(line.unitPrice)}</span>
-                    {perPlayer && (
+                    {frameBilled && (
                       <select
                         className="orderAssign"
-                        value={line.playerId ?? ""}
+                        value={payer?.kind === "player" ? payer.playerId : ""}
                         disabled={lineLocked}
                         onChange={(event) => assignOrder(line.lineId, event.target.value || undefined)}
-                        aria-label={`Assign ${line.name} to a player`}
+                        aria-label={`Who pays for ${line.name}`}
                       >
-                        <option value="">Shared (split)</option>
+                        <option value="" disabled={Boolean(stampedLoser?.settledAt)}>{frameOption}</option>
                         {players.map((player, index) => (
-                          <option key={player.id} value={player.id} disabled={Boolean(player.leftAt || player.settledAt)}>
-                            {playerLabel(player, index)}{player.leftAt || player.settledAt ? " (paid)" : ""}
+                          <option key={player.id} value={player.id} disabled={Boolean(player.settledAt)}>
+                            {playerLabel(player, index)}{player.settledAt ? " (paid)" : player.leftAt ? " (left)" : ""}
                           </option>
                         ))}
                       </select>

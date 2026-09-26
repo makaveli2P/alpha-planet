@@ -1,6 +1,6 @@
 import React from "react";
 import type { HourRevenue, Metrics, RevenueMix, Session, TableConfig, TablePerformance, TenderTotals } from "../types";
-import { calculateSessionTotals, isPerPlayer } from "../lib/billing";
+import { calculateSessionTotals, paidPerPlayer } from "../lib/billing";
 import { formatDuration, formatMoney } from "../lib/format";
 import { Receipt } from "./Receipt";
 
@@ -83,7 +83,7 @@ export function Dashboard({
         </div>
       </div>
 
-      {/* Operational counts — the units the new per-player flow unlocks. */}
+      {/* Operational counts — the units the loser-pays flow unlocks. */}
       <div className="statStrip">
         <Stat label="Avg session" value={metrics.averageMinutes ? formatDuration(metrics.averageMinutes) : "—"} />
         <Stat label="Frames played" value={`${metrics.totalFrames}`} sub={metrics.avgFrames ? `${metrics.avgFrames} avg` : undefined} />
@@ -129,7 +129,7 @@ export function Dashboard({
                     <div>
                       <strong>{session.customerName ? `${name} · ${session.customerName}` : name}</strong>
                       <span>
-                        {session.paymentMode ?? (isPerPlayer(session) ? "Split" : "—")} ·{" "}
+                        {session.paymentMode ?? (paidPerPlayer(session) ? "Split" : "—")} ·{" "}
                         {new Date(session.settledAt ?? 0).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       </span>
                     </div>

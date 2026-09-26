@@ -36,39 +36,45 @@ export type OrderLine = {
   variant: string;
   unitPrice: number;
   quantity: number;
-  // Per-player snooker only: which player ordered this line. Undefined = shared
-  // (split equally across players). Ignored in single-payer / non-snooker bills.
+  // Loser-pays snooker only (ignored on a whole-table bill). Who pays this line:
+  // `playerId` = one player ordered it for themselves. Otherwise it rides the
+  // frame it was ordered in and its lowest scorer pays: `frameNo` is stamped
+  // when that frame ends; unstamped = the frame still open.
   playerId?: string;
+  frameNo?: number;
 };
 
-// A single player on a per-player snooker bill. Each player is settled
-// individually (own payment mode + receipt); the session settles once every
-// player is settled. `satOutFrames` lowers their share of the table charge.
+// One player on a loser-pays snooker table. They owe the frames they lost plus
+// their own cafe lines, and settle individually (own payment mode + receipt).
+// The table's headcount — which sets the rate — counts them from `joinedAt`
+// until `leftAt`. A player who leaves keeps their tab and can pay while the
+// table plays on; a returning player is added again as a fresh entry.
 export type PlayerBill = {
   id: string;
   name?: string;
-  satOutFrames: number;
+  joinedAt?: number;
+  leftAt?: number;
   paymentMode?: PaymentMode;
   settledAt?: number;
-  // Early checkout: this player left while the table kept running. Their share of
-  // the table time is frozen at the moment they left (the remaining players carry
-  // the time from then on), so the split still reconciles to the final charge.
-  leftAt?: number;
-  frozenTableShare?: number;
-  frozenSharedCafe?: number;
-  frozenFrames?: number;
-  frozenMinutes?: number;
-  // Joined mid-session (after some frames were already played). Purely for the
-  // receipt's "in" time; the frame-share is what actually drives their bill.
-  joinedAt?: number;
-  // Set once this (settled) stint has spawned a rejoin, so it can't do so twice.
-  rejoinedAt?: number;
 };
 
-// "table" = one bill for the whole table (the original behavior, also used for
-// pool/counter). "per-player" = split the table charge by frames played and
-// settle each player separately (snooker default).
-export type SplitMode = "table" | "per-player";
+// A finished frame. It began where the previous frame ended (the first frame at
+// session start) and is billed to its lowest scorer. `endedAt` is absent only on
+// the last frame of an ended session: that frame ends with the session, so a
+// corrected end time moves it too. `loserId` is absent between End frame and
+// the pick of the lowest scorer — the boundary is recorded at the tap, so the
+// next frame (and any cafe ordered in it) starts from there.
+export type Frame = {
+  endedAt?: number;
+  loserId?: string;
+};
+
+// "table" = one bill for the whole table (pool, the counter, or a snooker party
+// paying as one). "frames" = snooker loser-pays: each frame's table time, plus
+// the cafe ordered during it, goes on its lowest scorer's tab, and each player
+// settles their own tab (snooker default). "per-player" is the retired
+// frames-played split; saved sessions that still carry it bill as "table".
+export type SplitMode = "table" | "frames" | "per-player";
 
 export type Session = {
   id: string;
@@ -83,10 +89,13 @@ export type Session = {
   settledAt?: number;
   voidedAt?: number;
   customerName?: string;
-  // Per-player snooker billing (all optional; absent = single-payer table bill).
+  // Loser-pays snooker billing (all optional; absent = single-payer table bill).
   splitMode?: SplitMode;
   players?: PlayerBill[];
-  frameCount?: number;
+  frames?: Frame[];
+  // ₹/hr added per player above the base headcount. Snapshotted at start, like
+  // ratePerHour, so a later policy change never re-prices a running table.
+  extraPlayerRatePerHour?: number;
 };
 
 export type AppState = {
@@ -124,19 +133,40 @@ export type SessionTotals = {
   total: number;
 };
 
-// One player's slice of a per-player snooker bill. Shares sum EXACTLY to the
-// session's tableCharge (table time) and kitchenTotal (cafe), so the per-player
-// totals reconcile to the session subtotal with no rupees lost or invented.
+// One frame of a loser-pays table, derived from the session. A finished frame
+// carries its lowest scorer once picked; the open frame (still being played, or
+// the last one left unbilled by End session) has none.
+export type FrameSummary = {
+  no: number;
+  startedAt: number;
+  endedAt: number;     // resolved end: now, for the frame still being played
+  minutes: number;     // whole minutes, for display only
+  players: number;     // players at the table at any point during the frame
+  tableCharge: number; // ₹ table time, priced by headcount second by second
+  cafeTotal: number;   // cafe folded into this frame (its lowest scorer pays)
+  total: number;
+  loserId?: string;
+  open: boolean;
+  // Ended (End frame tapped) but its lowest scorer is not picked yet.
+  awaiting?: boolean;
+  // An ended session's open frame with no billable time, only cafe: resolving
+  // it assigns that cafe to a player instead of recording a frame.
+  cafeOnly?: boolean;
+};
+
+// One player's tab on a loser-pays table. Tabs plus the unbilled frames (the
+// open one, and one awaiting its lowest scorer) sum EXACTLY to the session
+// subtotal, so no rupee is lost or invented.
 export type PlayerTotals = {
   player: PlayerBill;
   index: number;
-  framesPlayed: number;
-  tableShare: number;      // slice of the table time charge (by frames played)
-  ownCafe: number;         // cafe lines assigned to this player
-  sharedCafeShare: number; // equal slice of unassigned ("shared") cafe lines
-  total: number;           // tableShare + ownCafe + sharedCafeShare
+  framesLost: number;
+  tableShare: number; // table time of the frames they lost
+  frameCafe: number;  // cafe folded into the frames they lost
+  ownCafe: number;    // cafe lines assigned to them directly
+  total: number;      // tableShare + frameCafe + ownCafe
   settled: boolean;
-  left: boolean;           // checked out early (table still running for others)
+  left: boolean;      // left the table (the table may still be running)
 };
 
 export type RankingRow = {
@@ -161,8 +191,8 @@ export type RevenueMix = {
   gross: number;      // tableTime + dineInCafe + takeaway
 };
 
-// Money collected per tender. Per-player snooker bills credit each player's
-// slice to the mode they actually paid with, so one table can span tenders.
+// Money collected per tender. Loser-pays snooker bills credit each player's tab
+// to the mode they actually paid with, so one table can span tenders.
 export type TenderTotals = {
   Cash: number;
   UPI: number;
@@ -171,7 +201,7 @@ export type TenderTotals = {
 };
 
 // One real table's day: how long it was occupied, what it earned, and — for
-// per-player snooker — how many frames were played and heads served.
+// loser-pays snooker — how many frames were played and heads served.
 export type TablePerformance = {
   id: string;
   name: string;
@@ -200,13 +230,13 @@ export type Metrics = {
   peakHour?: number;      // hour (0–23) with the most revenue, if any
   revenueMix: RevenueMix;
   tenderTotals: TenderTotals;
-  splitBillCount: number; // per-player bills settled across >1 tender
-  // Per-table performance + the snooker units unlocked by per-player billing.
+  splitBillCount: number; // loser-pays bills settled across >1 tender
+  // Per-table performance + the snooker units unlocked by loser-pays billing.
   tablePerformance: TablePerformance[];
   openMinutes: number;    // minutes since the day's first session began
   totalFrames: number;
-  avgFrames: number;      // per snooker (per-player) session
-  playersServed: number;  // heads across per-player snooker sessions
+  avgFrames: number;      // per loser-pays snooker session
+  playersServed: number;  // heads across loser-pays snooker sessions
 };
 
 export type TableHistory = {
