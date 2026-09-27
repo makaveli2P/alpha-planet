@@ -1,92 +1,107 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { BillPanel } from "./components/BillPanel";
+import { CustomerDialog } from "./components/CustomerDialog";
+import { CustomersPage } from "./components/CustomersPage";
 import { Dashboard } from "./components/Dashboard";
-import { FloorBoard } from "./components/FloorBoard";
+import { ManualBillDialog } from "./components/ManualBillDialog";
 import { MenuPanel } from "./components/MenuPanel";
+import { PayTabDialog } from "./components/PayTabDialog";
+import { PlayersPanel } from "./components/PlayersPanel";
 import { SettingsView } from "./components/SettingsView";
+import { TablePanel } from "./components/TablePanel";
+import { TablesList } from "./components/TablesList";
 import { TopBar } from "./components/TopBar";
-import { tables as defaultTables } from "./data/tables";
+import type { ManualBillActions } from "./components/contracts";
+import { counterTable, tables as defaultTables } from "./data/tables";
 import {
-  calculateMetrics,
-  calculateSessionTotals,
-  getActiveSession,
-  getTableHistory,
-  getTableStatus
-} from "./lib/billing";
-import {
-  addMenuItem,
-  deleteMenuItem,
-  setMenuItemPrice,
-  setTableName,
-  setTableRate,
-  updateMenuItem
-} from "./lib/configActions";
+  billFrame,
+  chargeTabTo,
+  closeSitting,
+  customerInputError,
+  addCustomer,
+  editCustomer,
+  mergeCustomers,
+  moveCharge,
+  putBillOnNewTab,
+  putBillOnTab,
+  reassignFrame,
+  seatCustomer,
+  seatGuest,
+  seatNewCustomer,
+  settleTab,
+  startClock,
+  startCounterOrder,
+  undoPayment,
+  unseat,
+  updateActive,
+  voidCharge,
+  type CustomerInput,
+  type PayInput
+} from "./lib/appActions";
+import { calculateMetrics, calculateSessionTotals, getActiveSession, getTableStatus, sittingAlert } from "./lib/billing";
+import { addMenuItem, deleteMenuItem, setMenuItemPrice, setTableName, setTableRate, updateMenuItem } from "./lib/configActions";
 import { createId } from "./lib/format";
 import { filterMenu, getMenuCategories } from "./lib/menu";
 import {
   addOrderToSession,
-  addPlayer,
-  assignOrderToPlayer,
-  billOpenFrame,
-  cancelEndFrame,
+  cancelFrame,
   changeOrderQuantity,
-  createCounterOrder,
-  createSession,
   endFrame,
+  keepPlaying,
   markSessionEnded,
-  removePlayer,
   reopenEndedSession,
-  setFrameLoser,
-  setPlayerName,
+  setFrameEnd,
+  setFrameStart,
   setSessionDiscount,
   setSessionEnd,
   setSessionName,
-  setSessionSplitMode,
   setSessionStart,
   settleEndedSession,
-  settlePlayer,
+  startFrame,
   toggleSessionRoundOff,
-  unsettlePlayer,
   voidCurrentSession
 } from "./lib/sessionActions";
-import { loadAppState, saveAppState } from "./lib/storage";
-import type { AppState, AppView, MenuItem, PaymentMode, Session, SplitMode, TableConfig } from "./types";
+import { manualBillError, recordManualBill, voidManualBill } from "./lib/manualBill";
+import { loadAppState, parseBackup, saveAppState, storedBytes } from "./lib/storage";
+import type { AppState, AppView, MenuItem, PaymentMode, Session, TableConfig } from "./types";
 import "./styles.css";
+import "./styles/floor-left.css";
+import "./styles/table-panel.css";
+import "./styles/customers.css";
+import "./styles/misc.css";
+import "./styles/manual.css";
 
-// The cafe/takeaway station — a cafe-only order with no physical table.
-const COUNTER_TABLE: TableConfig = {
-  id: "counter",
-  name: "Cafe",
-  type: "Takeaway",
-  game: "snooker",
-  orientation: "portrait",
-  ratePerHour: 0,
-  x: 0,
-  y: 0,
-  w: 0,
-  h: 0,
-  felt: "green",
-  rail: "brown"
-};
+export type SettledToast = { label: string; total: number; mode: PaymentMode | "Tab"; tableId: string };
+
+// makeId that hands out the given ids first (so the caller knows them before
+// the state update runs), then fresh ones.
+function presetIds(...ids: string[]): () => string {
+  const queue = [...ids];
+  return () => queue.shift() ?? createId();
+}
 
 function App() {
   const [state, setState] = React.useState<AppState>(() => loadAppState());
-  // Rates and menu are editable at runtime (persisted in state).
+  // Latest committed state, for validation and toasts only — every write goes
+  // through a functional update on the current state (never this ref).
+  const stateRef = React.useRef(state);
+  stateRef.current = state;
+  const [saveFailed, setSaveFailed] = React.useState(false);
   const tables = state.tables;
-  const menu = state.menu;
   const [selectedTableId, setSelectedTableId] = React.useState(defaultTables[0].id);
   const [view, setView] = React.useState<AppView>("floor");
   const [search, setSearch] = React.useState("");
   const [category, setCategory] = React.useState("All");
   const [now, setNow] = React.useState(Date.now());
   const [hideMoney, setHideMoney] = React.useState(false);
-  const [confirmingEnd, setConfirmingEnd] = React.useState(false);
-  const [confirmingVoid, setConfirmingVoid] = React.useState(false);
-  const [settledToast, setSettledToast] = React.useState<{ label: string; total: number; mode: PaymentMode | "Split"; tableId: string } | null>(null);
+  const [settledToast, setSettledToast] = React.useState<SettledToast | null>(null);
+  const [payFor, setPayFor] = React.useState<string | null>(null);
+  const [editFor, setEditFor] = React.useState<{ customerId?: string } | null>(null);
+  // The manual bill dialog, opened on this table (or "counter").
+  const [manualFor, setManualFor] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    saveAppState(state);
+    setSaveFailed(!saveAppState(state));
   }, [state]);
 
   React.useEffect(() => {
@@ -107,15 +122,10 @@ function App() {
   React.useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey)) return;
-      if (event.key === "1") {
+      const views: Record<string, AppView> = { "1": "floor", "2": "customers", "3": "dashboard", "4": "settings" };
+      if (views[event.key]) {
         event.preventDefault();
-        setView("floor");
-      } else if (event.key === "2") {
-        event.preventDefault();
-        setView("dashboard");
-      } else if (event.key === "3") {
-        event.preventDefault();
-        setView("settings");
+        setView(views[event.key]);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -123,278 +133,175 @@ function App() {
   }, []);
 
   React.useEffect(() => {
-    if (!confirmingEnd) return;
-    const timer = window.setTimeout(() => setConfirmingEnd(false), 3000);
-    return () => window.clearTimeout(timer);
-  }, [confirmingEnd]);
-
-  React.useEffect(() => {
-    if (!confirmingVoid) return;
-    const timer = window.setTimeout(() => setConfirmingVoid(false), 3000);
-    return () => window.clearTimeout(timer);
-  }, [confirmingVoid]);
-
-  React.useEffect(() => {
-    setConfirmingEnd(false);
-    setConfirmingVoid(false);
-  }, [selectedTableId]);
-
-  React.useEffect(() => {
     if (!settledToast) return;
     const timer = window.setTimeout(() => setSettledToast(null), 1700);
     return () => window.clearTimeout(timer);
   }, [settledToast]);
 
-  const isCounter = selectedTableId === COUNTER_TABLE.id;
-  const selectedTable = isCounter ? COUNTER_TABLE : tables.find((table) => table.id === selectedTableId) ?? tables[0];
-  const activeSession = getActiveSession(state.sessions, selectedTable.id);
-  const counterSession = getActiveSession(state.sessions, COUNTER_TABLE.id);
-  const tableSummaries = tables.map((table) => {
-    const session = getActiveSession(state.sessions, table.id);
-    return { table, session, status: getTableStatus(session) };
-  });
+  const commit = React.useCallback((fn: (current: AppState) => AppState) => setState(fn), []);
 
-  const metrics = calculateMetrics(state.sessions, now, tables);
-  const liveTotals = tableSummaries.reduce(
-    (acc, { session, status }) => {
-      if (!session) return acc;
-      const totals = calculateSessionTotals(session, now);
+  const isCounter = selectedTableId === counterTable.id;
+  const selectedTable: TableConfig = isCounter ? counterTable : tables.find((table) => table.id === selectedTableId) ?? tables[0];
+  const activeSession = getActiveSession(state.sessions, selectedTable.id);
+  const metrics = calculateMetrics(state, now);
+
+  // Money on the floor that is not on a tab or paid yet. "Waiting" counts every
+  // table in the needs-action colour: a loser to pick, a bill to take, an idle
+  // table, or a table order with nobody seated (sittingAlert). An empty counter
+  // order has no bill to take yet.
+  const liveTotals = state.sessions.reduce(
+    (acc, session) => {
+      if (session.settledAt) return acc;
+      const status = getTableStatus(session);
+      const emptyCounter = session.tableId === counterTable.id && session.orders.length === 0;
+      const waiting = !emptyCounter && (status === "billing" || status === "awaiting" || sittingAlert(session, now) !== undefined);
       return {
-        revenue: acc.revenue + totals.total,
+        revenue: acc.revenue + calculateSessionTotals(session, now).total,
         running: acc.running + (status === "running" ? 1 : 0),
-        billing: acc.billing + (status === "billing" ? 1 : 0)
+        billing: acc.billing + (waiting ? 1 : 0)
       };
     },
     { revenue: 0, running: 0, billing: 0 }
   );
-  // An open counter order is live money too, even though it isn't a table.
-  if (counterSession) {
-    liveTotals.revenue += calculateSessionTotals(counterSession, now).total;
-  }
-  const categories = getMenuCategories(menu, state.sessions, now);
-  const filteredMenu = filterMenu(menu, category, search);
-  const tableHistory = !activeSession && !isCounter ? getTableHistory(state.sessions, selectedTable.id, now) : undefined;
 
-  function updateSession(sessionId: string, updater: (session: Session) => Session) {
-    setState((current) => ({
-      ...current,
-      sessions: current.sessions.map((session) => (session.id === sessionId ? updater(session) : session))
-    }));
-  }
+  const categories = getMenuCategories(state.menu);
+  const filteredMenu = filterMenu(state.menu, category, search);
 
-  function startSession(table: TableConfig) {
-    const session = createSession(table, Date.now(), createId());
-
-    setState((current) => {
-      if (getActiveSession(current.sessions, table.id)) return current;
-      return { ...current, sessions: [session, ...current.sessions] };
+  const table = selectedTable;
+  const onActive = (fn: (session: Session) => Session) => commit((current) => updateActive(current, table.id, fn));
+  const withActiveId = (fn: (current: AppState, sessionId: string) => AppState) =>
+    commit((current) => {
+      const active = getActiveSession(current.sessions, table.id);
+      return active ? fn(current, active.id) : current;
     });
-    setSelectedTableId(table.id);
-    setConfirmingEnd(false);
-    setConfirmingVoid(false);
+
+  function toastIfSettled(label: string, sessionId: string, mode: PaymentMode | "Tab") {
+    const session = stateRef.current.sessions.find((entry) => entry.id === sessionId);
+    if (!session || session.settledAt || !session.endedAt) return;
+    const total = calculateSessionTotals(session, Date.now()).total;
+    setSettledToast({ label, total, mode, tableId: session.tableId });
   }
 
-  function startCounterOrder() {
-    setState((current) => {
-      if (getActiveSession(current.sessions, COUNTER_TABLE.id)) return current;
-      const session = createCounterOrder(COUNTER_TABLE.id, Date.now(), createId());
-      return { ...current, sessions: [session, ...current.sessions] };
-    });
-    setSelectedTableId(COUNTER_TABLE.id);
-    setConfirmingEnd(false);
-    setConfirmingVoid(false);
-  }
-
-  function selectTable(table: TableConfig) {
-    setSelectedTableId(table.id);
-  }
+  const floorHandlers = {
+    // players
+    onSeatCustomer: (customerId: string) => commit((current) => seatCustomer(current, table, customerId, Date.now(), createId)),
+    onSeatNew: (input: CustomerInput): string | undefined => {
+      const error = customerInputError(stateRef.current, input);
+      if (error) return error;
+      commit((current) => seatNewCustomer(current, table, input, Date.now(), createId));
+      return undefined;
+    },
+    onSeatGuest: () => commit((current) => seatGuest(current, table, Date.now(), createId)),
+    onLeave: (seatId: string) => withActiveId((current, sessionId) => unseat(current, sessionId, seatId, Date.now())),
+    onPay: (customerId: string) => setPayFor(customerId),
+    onEditCustomer: (customerId: string) => setEditFor({ customerId }),
+    // frames
+    onStartFrame: () => onActive((session) => startFrame(session, Date.now(), createId())),
+    onEndFrame: () => onActive((session) => endFrame(session, Date.now())),
+    onKeepPlaying: () => onActive(keepPlaying),
+    onCancelFrame: () => onActive((session) => cancelFrame(session, Date.now())),
+    onSetFrameStart: (frameId: string, at: number) => onActive((session) => setFrameStart(session, frameId, at, Date.now())),
+    onSetFrameEnd: (frameId: string, at: number) => onActive((session) => setFrameEnd(session, frameId, at, Date.now())),
+    onBillFrame: (seatId: string) => withActiveId((current, sessionId) => billFrame(current, sessionId, seatId, Date.now(), createId)),
+    onReassignFrame: (frameId: string, seatId: string) =>
+      withActiveId((current, sessionId) => reassignFrame(current, sessionId, frameId, seatId, Date.now())),
+    onChargeTabTo: (seatId: string, lineId?: string) =>
+      withActiveId((current, sessionId) => chargeTabTo(current, sessionId, seatId, Date.now(), createId, lineId)),
+    onCloseTable: () => withActiveId((current, sessionId) => closeSitting(current, sessionId, Date.now())),
+    // cafe lines
+    onChangeQuantity: (lineId: string, delta: number) => onActive((session) => changeOrderQuantity(session, lineId, delta)),
+    // whole bill
+    onStartClock: () => commit((current) => startClock(current, table, Date.now(), createId)),
+    onStartCounterOrder: () => commit((current) => startCounterOrder(current, Date.now(), createId)),
+    onSetName: (value: string) => onActive((session) => setSessionName(session, value)),
+    onSetStartTime: (at: number) => onActive((session) => setSessionStart(session, at, Date.now())),
+    onSetEndTime: (at: number) => onActive((session) => setSessionEnd(session, at, Date.now())),
+    onEndSession: () => onActive((session) => markSessionEnded(session, Date.now())),
+    onReopen: () => onActive((session) => reopenEndedSession(session, Date.now())),
+    onSettle: (mode: PaymentMode) => {
+      if (activeSession) toastIfSettled(activeSession.customerName ? `${table.name} · ${activeSession.customerName}` : table.name, activeSession.id, mode);
+      onActive((session) => settleEndedSession(session, mode, Date.now()));
+    },
+    onPutOnTab: (customerId: string) => {
+      const customer = stateRef.current.customers.find((entry) => entry.id === customerId);
+      if (activeSession) toastIfSettled(`${table.name} · ${customer?.name ?? "tab"}`, activeSession.id, "Tab");
+      withActiveId((current, sessionId) => putBillOnTab(current, sessionId, customerId, Date.now(), createId));
+    },
+    onPutOnTabNew: (input: CustomerInput): string | undefined => {
+      const error = customerInputError(stateRef.current, input);
+      if (error) return error;
+      if (activeSession) toastIfSettled(`${table.name} · ${input.name.trim()}`, activeSession.id, "Tab");
+      withActiveId((current, sessionId) => putBillOnNewTab(current, sessionId, input, Date.now(), createId));
+      return undefined;
+    },
+    onVoid: () => onActive((session) => voidCurrentSession(session, Date.now())),
+    onSetDiscount: (value: number) => onActive((session) => setSessionDiscount(session, value)),
+    onToggleRoundOff: () => onActive(toggleSessionRoundOff)
+  };
 
   function addOrder(menuItem: MenuItem, price: MenuItem["prices"][number]) {
-    const session = activeSession;
-    if (!session) return;
-    updateSession(session.id, (current) => addOrderToSession(current, menuItem, price, createId));
+    onActive((session) => addOrderToSession(session, menuItem, price, createId));
   }
 
-  function changeQuantity(lineId: string, delta: number) {
-    if (!activeSession) return;
-    const when = Date.now();
-    const updated = changeOrderQuantity(activeSession, lineId, delta, when);
-    updateSession(activeSession.id, () => updated);
-    announceIfClosed(updated, when);
+  const customerHandlers = {
+    onAddCustomer: (input: CustomerInput): string | undefined => {
+      const error = customerInputError(stateRef.current, input);
+      if (error) return error;
+      commit((current) => addCustomer(current, input, Date.now(), createId).state);
+      return undefined;
+    },
+    onSaveCustomer: (customerId: string, input: CustomerInput): string | undefined => {
+      const error = customerInputError(stateRef.current, input, customerId);
+      if (error) return error;
+      commit((current) => editCustomer(current, customerId, input));
+      return undefined;
+    },
+    onMerge: (fromId: string, intoId: string) => commit((current) => mergeCustomers(current, fromId, intoId)),
+    onPay: (customerId: string) => setPayFor(customerId),
+    onEdit: (customerId: string) => setEditFor({ customerId }),
+    onNew: () => setEditFor({})
+  };
+
+  const payHandlers = {
+    // Returns the new payment's id; the dialog finds it in state after the update.
+    onPayTab: (customerId: string, chargeIds: string[], input: PayInput): string => {
+      const paymentId = createId();
+      commit((current) => settleTab(current, customerId, chargeIds, input, Date.now(), presetIds(paymentId)).state);
+      return paymentId;
+    },
+    onVoidCharge: (chargeId: string) => commit((current) => voidCharge(current, chargeId, Date.now())),
+    onMoveCharge: (chargeId: string, customerId: string) => commit((current) => moveCharge(current, chargeId, customerId)),
+    onUndoPayment: (paymentId: string) => commit((current) => undoPayment(current, paymentId))
+  };
+
+  const manualHandlers: ManualBillActions = {
+    // Validate on the latest state, then record in one update. The dialog finds
+    // the records by the draft id (missing = the reducer refused).
+    onRecordManual: (input) => {
+      const error = manualBillError(stateRef.current, input, Date.now());
+      if (error) return { error };
+      commit((current) => recordManualBill(current, input, Date.now(), createId));
+      return { id: input.id };
+    },
+    onVoidManual: (sessionId: string) => commit((current) => voidManualBill(current, sessionId, Date.now()))
+  };
+
+  function exportBackup() {
+    const blob = new Blob([JSON.stringify(stateRef.current, null, 1)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const day = new Date();
+    link.href = url;
+    link.download = `alpha-planet-${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}.json`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  function endSession() {
-    if (!activeSession || activeSession.endedAt) return;
-    const when = Date.now();
-    const updated = markSessionEnded(activeSession, when);
-    updateSession(activeSession.id, () => updated);
-    announceIfClosed(updated, when);
-  }
-
-  function reopenSession() {
-    if (!activeSession) return;
-    updateSession(activeSession.id, (session) => reopenEndedSession(session, Date.now()));
-  }
-
-  function settleSession(paymentMode: PaymentMode) {
-    if (!activeSession || !activeSession.endedAt) return;
-    const totals = calculateSessionTotals(activeSession, Date.now());
-    const label = activeSession.customerName
-      ? `${selectedTable.name} · ${activeSession.customerName}`
-      : selectedTable.name;
-    updateSession(activeSession.id, (session) => settleEndedSession(session, paymentMode, Date.now()));
-    setConfirmingEnd(false);
-    setConfirmingVoid(false);
-    setSettledToast({ label, total: totals.total, mode: paymentMode, tableId: selectedTable.id });
-  }
-
-  // ====== Loser-pays snooker billing handlers ======
-
-  function changeSplitMode(mode: SplitMode) {
-    if (!activeSession) return;
-    updateSession(activeSession.id, (session) => setSessionSplitMode(session, mode));
-  }
-
-  function addTablePlayer(name: string) {
-    if (!activeSession) return;
-    updateSession(activeSession.id, (session) => addPlayer(session, name, createId, Date.now()));
-  }
-
-  function removeTablePlayer(playerId: string) {
-    if (!activeSession) return;
-    const when = Date.now();
-    const updated = removePlayer(activeSession, playerId, when);
-    updateSession(activeSession.id, () => updated);
-    announceIfClosed(updated, when);
-  }
-
-  function changePlayerName(playerId: string, name: string) {
-    if (!activeSession) return;
-    updateSession(activeSession.id, (session) => setPlayerName(session, playerId, name));
-  }
-
-  // The frame ends at the tap; its lowest scorer is picked next.
-  function endTableFrame() {
-    if (!activeSession) return;
-    const when = Date.now();
-    updateSession(activeSession.id, (session) => endFrame(session, when, when));
-  }
-
-  function cancelTableEndFrame() {
-    if (!activeSession) return;
-    updateSession(activeSession.id, (session) => cancelEndFrame(session, Date.now()));
-  }
-
-  function billFrame(loserId: string) {
-    if (!activeSession) return;
-    const when = Date.now();
-    const updated = billOpenFrame(activeSession, loserId, when);
-    updateSession(activeSession.id, () => updated);
-    announceIfClosed(updated, when);
-  }
-
-  function changeFrameLoser(frameNo: number, loserId: string) {
-    if (!activeSession) return;
-    const when = Date.now();
-    const updated = setFrameLoser(activeSession, frameNo, loserId, when);
-    updateSession(activeSession.id, () => updated);
-    announceIfClosed(updated, when);
-  }
-
-  function assignOrder(lineId: string, playerId?: string) {
-    if (!activeSession) return;
-    const when = Date.now();
-    const updated = assignOrderToPlayer(activeSession, lineId, playerId, when);
-    updateSession(activeSession.id, () => updated);
-    announceIfClosed(updated, when);
-  }
-
-  function settlePlayerBill(playerId: string, mode: PaymentMode) {
-    if (!activeSession) return;
-    const when = Date.now();
-    const updated = settlePlayer(activeSession, playerId, mode, when);
-    updateSession(activeSession.id, () => updated);
-    announceIfClosed(updated, when);
-  }
-
-  // When the last tab is paid the whole table closes — confirm like a settle.
-  function announceIfClosed(updated: Session, when: number) {
-    if (!activeSession || activeSession.settledAt || !updated.settledAt) return;
-    const totals = calculateSessionTotals(updated, when);
-    const label = updated.customerName ? `${selectedTable.name} · ${updated.customerName}` : selectedTable.name;
-    setConfirmingEnd(false);
-    setConfirmingVoid(false);
-    setSettledToast({ label, total: totals.total, mode: updated.paymentMode ?? "Split", tableId: selectedTable.id });
-  }
-
-  function undoPlayerSettle(playerId: string) {
-    if (!activeSession) return;
-    updateSession(activeSession.id, (session) => unsettlePlayer(session, playerId));
-  }
-
-  function setName(value: string) {
-    if (!activeSession) return;
-    updateSession(activeSession.id, (session) => setSessionName(session, value));
-  }
-
-  function setStartTime(startedAt: number) {
-    if (!activeSession) return;
-    updateSession(activeSession.id, (session) => setSessionStart(session, startedAt, Date.now()));
-  }
-
-  function setEndTime(endedAt: number) {
-    if (!activeSession) return;
-    updateSession(activeSession.id, (session) => setSessionEnd(session, endedAt, Date.now()));
-  }
-
-  function voidSession() {
-    if (!activeSession) return;
-    updateSession(activeSession.id, (session) => voidCurrentSession(session, Date.now()));
-  }
-
-  function setDiscount(value: number) {
-    if (!activeSession) return;
-    updateSession(activeSession.id, (session) => setSessionDiscount(session, value));
-  }
-
-  function toggleRoundOff() {
-    if (!activeSession) return;
-    updateSession(activeSession.id, toggleSessionRoundOff);
-  }
-
-  function clearDemoData() {
-    setState((current) => ({ ...current, sessions: [] }));
-  }
-
-  function editTableRate(id: string, rate: number) {
-    setState((current) => ({ ...current, tables: setTableRate(current.tables, id, rate) }));
-  }
-
-  function editTableName(id: string, name: string) {
-    setState((current) => ({ ...current, tables: setTableName(current.tables, id, name) }));
-  }
-
-  function createMenuItem(name: string, categoryName: string, price: number) {
-    const item: MenuItem = {
-      id: createId(),
-      name: name.trim(),
-      category: categoryName.trim() || "Cafe",
-      prices: [{ label: "Regular", price: Math.max(0, Math.round(price) || 0) }]
-    };
-    if (!item.name) return;
-    setState((current) => ({ ...current, menu: addMenuItem(current.menu, item) }));
-  }
-
-  function editMenuItem(id: string, patch: Partial<MenuItem>) {
-    setState((current) => ({ ...current, menu: updateMenuItem(current.menu, id, patch) }));
-  }
-
-  function editMenuItemPrice(id: string, index: number, price: number) {
-    setState((current) => ({ ...current, menu: setMenuItemPrice(current.menu, id, index, price) }));
-  }
-
-  function removeMenuItem(id: string) {
-    setState((current) => ({ ...current, menu: deleteMenuItem(current.menu, id) }));
+  function importBackup(text: string): string | undefined {
+    const next = parseBackup(text, Date.now());
+    if (!next) return "That file is not an Alpha Planet backup.";
+    setState(next);
+    return undefined;
   }
 
   return (
@@ -406,102 +313,101 @@ function App() {
         liveTotals={liveTotals}
         hideMoney={hideMoney}
         onToggleMoney={() => setHideMoney((value) => !value)}
+        saveFailed={saveFailed}
       />
 
       <main className="workspace">
         {view === "floor" && (
           <div className="floorGrid">
-            <section className="floorPanel">
-              <header className="sectionHeader">
-                <div>
-                  <p className="eyebrow">Live floor</p>
-                  <h2>Tables</h2>
-                </div>
-                <div className="legend">
-                  <span><i className="dot available" /> Free</span>
-                  <span><i className="dot running" /> Running</span>
-                  <span><i className="dot billing" /> Billing</span>
-                </div>
-              </header>
-
-              <FloorBoard
-                now={now}
-                selectedTableId={selectedTableId}
-                tableSummaries={tableSummaries}
-                onSelectTable={selectTable}
-                counterSession={counterSession}
-                counterSelected={isCounter}
-                onSelectCounter={() => setSelectedTableId(COUNTER_TABLE.id)}
-              />
-            </section>
-
-            <BillPanel
-              selectedTable={selectedTable}
-              activeSession={activeSession}
-              now={now}
+            <TablesList
               tables={tables}
               sessions={state.sessions}
-              tableHistory={tableHistory}
-              isCounter={isCounter}
-              startCounterOrder={startCounterOrder}
-              setName={setName}
-              setStartTime={setStartTime}
-              setEndTime={setEndTime}
-              settledInfo={settledToast && settledToast.tableId === selectedTable.id ? settledToast : undefined}
-              confirmingEnd={confirmingEnd}
-              setConfirmingEnd={setConfirmingEnd}
-              confirmingVoid={confirmingVoid}
-              setConfirmingVoid={setConfirmingVoid}
-              startSession={startSession}
-              endSession={endSession}
-              reopenSession={reopenSession}
-              settleSession={settleSession}
-              voidSession={voidSession}
-              setDiscount={setDiscount}
-              toggleRoundOff={toggleRoundOff}
-              changeQuantity={changeQuantity}
-              changeSplitMode={changeSplitMode}
-              addPlayer={addTablePlayer}
-              removePlayer={removeTablePlayer}
-              changePlayerName={changePlayerName}
-              endFrame={endTableFrame}
-              cancelEndFrame={cancelTableEndFrame}
-              billOpenFrame={billFrame}
-              changeFrameLoser={changeFrameLoser}
-              assignOrder={assignOrder}
-              settlePlayerBill={settlePlayerBill}
-              undoPlayerSettle={undoPlayerSettle}
+              now={now}
+              selectedId={selectedTable.id}
+              onSelect={setSelectedTableId}
+              onManualBill={() => setManualFor(selectedTable.id)}
             />
-
+            <PlayersPanel key={`players-${selectedTable.id}`} state={state} table={selectedTable} session={activeSession} now={now} {...floorHandlers} />
+            <TablePanel
+              key={`table-${selectedTable.id}`}
+              state={state}
+              table={selectedTable}
+              isCounter={isCounter}
+              session={activeSession}
+              now={now}
+              settledInfo={settledToast && settledToast.tableId === selectedTable.id ? settledToast : undefined}
+              {...floorHandlers}
+            />
             <MenuPanel
+              session={activeSession}
+              tableName={selectedTable.name}
               search={search}
               setSearch={setSearch}
               category={category}
               setCategory={setCategory}
               categories={categories}
               filteredMenu={filteredMenu}
-              activeSession={activeSession}
               addOrder={addOrder}
-              changeQuantity={changeQuantity}
+              changeQuantity={floorHandlers.onChangeQuantity}
+              isCounter={isCounter}
             />
           </div>
         )}
 
-        {view === "dashboard" && <Dashboard metrics={metrics} sessions={state.sessions} tables={tables} now={now} hideMoney={hideMoney} />}
+        {view === "customers" && <CustomersPage state={state} now={now} hideMoney={hideMoney} {...customerHandlers} />}
+        {view === "dashboard" && <Dashboard metrics={metrics} state={state} now={now} hideMoney={hideMoney} />}
         {view === "settings" && (
           <SettingsView
             tables={tables}
-            menu={menu}
-            clearDemoData={clearDemoData}
-            editTableRate={editTableRate}
-            editTableName={editTableName}
-            createMenuItem={createMenuItem}
-            editMenuItem={editMenuItem}
-            editMenuItemPrice={editMenuItemPrice}
-            removeMenuItem={removeMenuItem}
+            menu={state.menu}
+            storageBytes={storedBytes()}
+            saveFailed={saveFailed}
+            onExport={exportBackup}
+            onImport={importBackup}
+            clearDemoData={() => setState((current) => ({ ...current, sessions: [], charges: [], payments: [] }))}
+            editTableRate={(id, rate) => setState((current) => ({ ...current, tables: setTableRate(current.tables, id, rate) }))}
+            editTableName={(id, name) => setState((current) => ({ ...current, tables: setTableName(current.tables, id, name) }))}
+            createMenuItem={(name, categoryName, price) => {
+              const item: MenuItem = {
+                id: createId(),
+                name: name.trim(),
+                category: categoryName.trim() || "Cafe",
+                prices: [{ label: "Regular", price: Math.max(0, Math.round(price) || 0) }]
+              };
+              if (item.name) setState((current) => ({ ...current, menu: addMenuItem(current.menu, item) }));
+            }}
+            editMenuItem={(id, patch) => setState((current) => ({ ...current, menu: updateMenuItem(current.menu, id, patch) }))}
+            editMenuItemPrice={(id, index, price) => setState((current) => ({ ...current, menu: setMenuItemPrice(current.menu, id, index, price) }))}
+            removeMenuItem={(id) => setState((current) => ({ ...current, menu: deleteMenuItem(current.menu, id) }))}
           />
         )}
       </main>
+
+      {payFor && <PayTabDialog state={state} customerId={payFor} now={now} onClose={() => setPayFor(null)} {...payHandlers} />}
+      {manualFor && (
+        <ManualBillDialog
+          state={state}
+          tableId={manualFor}
+          now={now}
+          onClose={() => setManualFor(null)}
+          onPayNow={(customerId) => {
+            // One overlay at a time: this dialog closes as the pay dialog opens.
+            setManualFor(null);
+            setPayFor(customerId);
+          }}
+          {...manualHandlers}
+        />
+      )}
+      {editFor && (
+        <CustomerDialog
+          state={state}
+          customerId={editFor.customerId}
+          onClose={() => setEditFor(null)}
+          onAdd={customerHandlers.onAddCustomer}
+          onSave={customerHandlers.onSaveCustomer}
+          onMerge={customerHandlers.onMerge}
+        />
+      )}
     </div>
   );
 }

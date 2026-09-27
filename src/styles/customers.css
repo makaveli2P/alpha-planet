@@ -1,0 +1,1070 @@
+/* customers — the Customers page, the customer dialog (add / edit / merge),
+   the pay-tab dialog and the tab receipt day lines. See SPEC-v2.
+   Class prefix: cx. The dialogs sit on .receiptOverlay / .receiptPaper. */
+
+/* ====== Customers page ====== */
+
+.cxPage {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 4px 24px 6px;
+}
+
+.cxHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 20px;
+  padding: 6px 0 14px;
+  border-bottom: 1px solid var(--hairline-strong);
+}
+
+.cxHead h2 {
+  margin: 0;
+  font-family: "Anton", sans-serif;
+  font-weight: 400;
+  font-size: 34px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  line-height: 1;
+  color: var(--ink-blue);
+}
+
+.cxHead .eyebrow {
+  letter-spacing: 0.16em;
+}
+
+.cxHeadSub {
+  display: block;
+  margin-top: 7px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--orange-ink);
+  font-feature-settings: "tnum";
+}
+
+.cxTools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cxSearch {
+  width: 300px;
+  height: 44px;
+}
+
+.cxClear {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  padding: 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink-soft);
+}
+
+.cxClear:hover {
+  background: var(--paper-edge);
+  color: var(--ink);
+}
+
+.cxNew {
+  white-space: nowrap;
+}
+
+.cxChips {
+  display: flex;
+  gap: 6px;
+  padding: 12px 0 10px;
+}
+
+.cxChips button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.cxChips button em {
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: 0;
+  color: var(--ink-faint);
+  font-feature-settings: "tnum";
+}
+
+.cxChips button:hover {
+  background: var(--paper-warm);
+  color: var(--ink);
+}
+
+.cxChips button.active {
+  background: var(--rail-walnut);
+  border-color: var(--rail-walnut);
+  color: var(--ball-cue);
+}
+
+.cxChips button.active em {
+  color: rgba(243, 234, 212, 0.75);
+}
+
+.cxTable {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cxRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 130px 120px 110px 110px 170px;
+  align-items: center;
+  gap: 16px;
+  min-height: 54px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--hairline);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.cxRowHead {
+  min-height: 0;
+  padding: 8px 4px;
+  border-top: 1px solid var(--hairline-strong);
+  border-bottom: 1px solid var(--hairline-strong);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.cxRows {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.cxRow.seated {
+  background: rgba(82, 168, 106, 0.08);
+}
+
+.cxName {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.cxName > div {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.cxName strong {
+  display: block;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cxSub {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.cxAvatar {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--paper-warm);
+  border: 1px solid var(--hairline-strong);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--ink-blue);
+}
+
+.cxGuestTag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 999px;
+  font-family: "Manrope", sans-serif;
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  vertical-align: middle;
+  color: var(--ink-soft);
+}
+
+.cxPhone {
+  font-feature-settings: "tnum";
+}
+
+.cxFaint {
+  color: var(--ink-faint);
+}
+
+.cxAtTable {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--felt-green-rim);
+}
+
+.cxAtTable::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ball-green);
+}
+
+.cxNum {
+  text-align: right;
+  font-feature-settings: "tnum";
+}
+
+.cxTab {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--orange-ink);
+}
+
+.cxTab.cxFaint {
+  font-weight: 600;
+  color: var(--ink-faint);
+}
+
+.cxActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.cxPayBtn {
+  min-width: 64px;
+}
+
+.cxEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 48px 16px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.cxEmpty strong {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.cxFootNote {
+  margin: 0;
+  padding: 12px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.cxLink {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  color: var(--ink-blue);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+/* ====== Dialogs (on the receipt overlay) ====== */
+
+.receiptPaper.cxPaper {
+  font-family: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.receiptPaper.cxEditPaper {
+  max-width: 420px;
+  padding: 24px 24px 20px;
+}
+
+.cxDialogTitle {
+  margin: 0 32px 2px 0;
+  font-family: "Anton", sans-serif;
+  font-weight: 400;
+  font-size: 26px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  line-height: 1.05;
+  color: var(--ink-blue);
+  overflow-wrap: anywhere;
+}
+
+.cxHint {
+  margin: 2px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.cxNote {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--orange-ink);
+}
+
+.cxForm {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.cxField {
+  display: grid;
+  gap: 5px;
+}
+
+.cxField > span {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.cxField > span i {
+  margin-left: 4px;
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-faint);
+}
+
+.cxField input,
+.cxInput {
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 12px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 6px;
+  background: var(--paper-warm);
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.cxField input:focus,
+.cxInput:focus {
+  outline: none;
+  border-color: var(--ball-orange);
+  background: var(--ball-cue);
+}
+
+.cxField input::placeholder,
+.cxInput::placeholder {
+  color: var(--ink-faint);
+  font-weight: 500;
+}
+
+.cxField.invalid input {
+  border-color: var(--ball-red);
+}
+
+.cxFieldError {
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ball-red);
+}
+
+.cxDialogActions {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.cxMerge {
+  display: grid;
+  gap: 8px;
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--hairline-strong);
+}
+
+.cxMerge h3,
+.cxPast h3 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.cxMergeTarget {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.cxMergeTarget > div {
+  display: grid;
+  min-width: 0;
+}
+
+.cxMergeTarget strong {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.cxMergeTarget span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  font-feature-settings: "tnum";
+}
+
+.cxMergeTarget .ghostAction {
+  grid-column: 1 / -1;
+}
+
+/* Armed (first tap): the base .ghostAction.danger rule wins over .confirming, so fill it here. */
+.cxMergeTarget .ghostAction.danger.confirming,
+.cxMergeTarget .ghostAction.danger.confirming:hover {
+  background: var(--ball-red);
+  border-color: transparent;
+  color: var(--ball-cue);
+}
+
+.cxSuggest {
+  display: grid;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--ball-cue);
+}
+
+.cxSuggest button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 40px;
+  padding: 6px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--hairline);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+}
+
+.cxSuggest button:last-child {
+  border-bottom: 0;
+}
+
+.cxSuggest button:hover,
+.cxSuggest button:focus-visible {
+  outline: none;
+  background: var(--paper-warm);
+}
+
+.cxSuggest strong {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.cxSuggest button > span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  font-feature-settings: "tnum";
+}
+
+/* ====== Pay-tab dialog ====== */
+
+.receiptPaper.cxPay {
+  max-width: 560px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.cxPayHead {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 56px 14px 24px;
+  border-bottom: 1px solid var(--hairline-strong);
+}
+
+.cxPayWho {
+  display: grid;
+  min-width: 0;
+}
+
+.cxPayWho > span {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  font-feature-settings: "tnum";
+}
+
+.cxPayWho > span.cxFaint {
+  color: var(--ink-faint);
+}
+
+.cxPayOpen {
+  flex: 0 0 auto;
+  display: grid;
+  justify-items: end;
+  gap: 3px;
+}
+
+.cxPayOpen span {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.cxPayOpen strong {
+  font-family: "Anton", sans-serif;
+  font-weight: 400;
+  font-size: 28px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: var(--orange-ink);
+  font-feature-settings: "tnum";
+}
+
+.cxPayScroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px 24px 16px;
+}
+
+.cxListHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  padding: 10px 0 4px;
+}
+
+.cxCheck {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.cxCheck input,
+.cxChargeMain input {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--felt-green);
+  cursor: pointer;
+}
+
+.cxCheck input:disabled,
+.cxChargeMain input:disabled {
+  cursor: default;
+}
+
+.cxDay {
+  padding-top: 10px;
+}
+
+.cxDayHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--hairline-strong);
+}
+
+.cxDayHead .cxCheck span {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.cxDayHead > span {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  font-feature-settings: "tnum";
+}
+
+.cxCharge {
+  display: grid;
+  gap: 6px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.cxChargeMain {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.cxChargeBody {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cxChargeBody strong {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.cxChargeBody span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  font-feature-settings: "tnum";
+}
+
+.cxChargeBody span.cxChanged {
+  font-weight: 700;
+  color: var(--orange-ink);
+}
+
+.cxChargeAmt {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--ink);
+  font-feature-settings: "tnum";
+}
+
+.cxCharge:not(.on):not(.gone) .cxChargeAmt {
+  color: var(--ink-faint);
+}
+
+.cxCharge.gone .cxChargeMain {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.cxCharge.gone strong,
+.cxCharge.gone .cxChargeAmt {
+  text-decoration: line-through;
+}
+
+.cxGoneTag {
+  justify-self: start;
+  margin-left: 30px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.cxChargeActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-left: 30px;
+}
+
+.cxChargeActions .rowGhostBtn,
+.cxPastRow .rowGhostBtn {
+  min-height: 30px;
+  padding: 4px 9px;
+  font-size: 11.5px;
+}
+
+.rowGhostBtn.cxVoid {
+  color: var(--ball-red);
+  background: transparent;
+  border-color: rgba(178, 63, 48, 0.32);
+}
+
+.rowGhostBtn.cxVoid:hover {
+  background: rgba(178, 63, 48, 0.08);
+  color: var(--ball-red);
+}
+
+.rowGhostBtn.cxVoid.confirming,
+.rowGhostBtn.cxVoid.confirming:hover {
+  background: var(--ball-red);
+  border-color: transparent;
+  color: var(--ball-cue);
+}
+
+.rowGhostBtn.cxVoid:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.cxMove {
+  display: grid;
+  gap: 6px;
+  padding-left: 30px;
+}
+
+.cxMoveBar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.cxMoveBar .cxInput {
+  min-height: 36px;
+  font-size: 13px;
+}
+
+.cxPayDone {
+  flex: none;
+  margin: 14px 0 4px;
+  padding: 22px 18px;
+}
+
+.cxDoneActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  width: 100%;
+  max-width: 360px;
+  margin-top: 8px;
+}
+
+.cxDoneActions .primaryAction {
+  background: var(--ball-cue);
+  border-color: rgba(0, 0, 0, 0.18);
+  color: var(--felt-green-rim);
+  font-weight: 800;
+}
+
+.cxDoneActions .primaryAction:hover {
+  background: #fff7e1;
+}
+
+.cxPast {
+  display: grid;
+  margin-top: 18px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hairline-strong);
+}
+
+.cxPast h3 {
+  margin-bottom: 2px;
+}
+
+.cxPastRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.cxPastRow > div {
+  display: grid;
+  min-width: 0;
+}
+
+.cxPastRow strong {
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.cxPastRow > div span {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  font-feature-settings: "tnum";
+}
+
+.cxPastAmt {
+  font-size: 14px;
+  font-weight: 800;
+  font-feature-settings: "tnum";
+}
+
+.cxPast > .cxLink {
+  justify-self: start;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.cxPayFoot {
+  flex: 0 0 auto;
+  padding: 12px 24px 16px;
+  border-top: 1px solid var(--hairline-strong);
+  box-shadow: 0 -8px 14px -12px rgba(0, 0, 0, 0.35);
+}
+
+.cxSums {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.cxSum {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  padding: 0 12px;
+  border-left: 1px solid var(--hairline);
+}
+
+.cxSum:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.cxSum > span {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.cxSum > strong {
+  font-family: "Anton", sans-serif;
+  font-weight: 400;
+  font-size: 26px;
+  line-height: 1.15;
+  letter-spacing: 0.02em;
+  color: var(--ink-blue);
+  font-feature-settings: "tnum";
+}
+
+.cxSumInput input {
+  width: 100%;
+  min-height: 36px;
+  padding: 5px 9px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 5px;
+  background: var(--paper-warm);
+  color: var(--ink);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  font-feature-settings: "tnum";
+}
+
+.cxSumInput input:focus {
+  outline: none;
+  border-color: var(--ball-orange);
+  background: var(--ball-cue);
+}
+
+.cxPayNote {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 8px 0 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.cxCarry {
+  color: var(--orange-ink);
+}
+
+.cxTender {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.cxTender button {
+  min-height: 40px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 6px;
+  background: var(--paper-warm);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.cxTender button:hover {
+  background: var(--paper-edge);
+}
+
+.cxTender button.active,
+.cxTender button.active:hover {
+  background: var(--ink-blue);
+  border-color: var(--ink-blue);
+  color: var(--ball-cue);
+}
+
+.cxConfirm {
+  width: 100%;
+  min-height: 46px;
+  margin-top: 8px;
+  font-size: 14px;
+}
+
+.cxWhy {
+  margin: 6px 0 0;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--ink-soft);
+}
+
+.cxWhy.blocked {
+  color: var(--ball-red);
+}
+
+/* ====== Tab receipt: day lines ====== */
+
+.cxReceiptDay {
+  margin-top: 4px;
+  padding-bottom: 2px;
+  border-bottom: 1px dotted rgba(77, 42, 24, 0.3);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.cxReceiptDay:first-child {
+  margin-top: 0;
+}
+
+/* ====== Touch (the floor iPad): bigger tap targets in the dialogs ====== */
+
+@media (pointer: coarse) {
+  .cxChargeActions .rowGhostBtn,
+  .cxPastRow .rowGhostBtn {
+    min-height: 38px;
+    padding: 6px 12px;
+  }
+
+  .cxCheck input,
+  .cxChargeMain input {
+    width: 24px;
+    height: 24px;
+  }
+
+  .cxChargeMain {
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+  }
+
+  .cxGoneTag,
+  .cxChargeActions,
+  .cxMove {
+    padding-left: 34px;
+    margin-left: 0;
+  }
+}
+
+/* ====== Narrow screens (iPad portrait) ====== */
+
+@media (max-width: 960px) {
+  .cxPage {
+    padding: 4px 8px 6px;
+  }
+
+  .cxSearch {
+    width: 220px;
+  }
+
+  .cxRow {
+    grid-template-columns: minmax(0, 1fr) 100px 96px 150px;
+    gap: 10px;
+  }
+
+  .cxRow > :nth-child(2),
+  .cxRow > :nth-child(5) {
+    display: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .cxSums {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 0;
+  }
+
+  .cxSum:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .cxSum:nth-child(2) {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .cxPastRow {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}

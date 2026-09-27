@@ -1,0 +1,1104 @@
+/* floor-left — the tables list and the players panel (SPEC-v2).
+   Both panels fill their grid cell and scroll inside; the page never scrolls.
+   Every class here starts with "fl". */
+
+/* ====== Shared panel head ====== */
+
+.flTablesHead,
+.flPlHead {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+  /* Same height for both heads (the players head has an eyebrow), so the
+     hairlines under them line up. */
+  min-height: 60px;
+  padding: 6px 2px 8px;
+  border-bottom: 1px solid var(--hairline-strong);
+}
+
+.flTablesHead h2,
+.flPlHead h2 {
+  margin: 0;
+  font-family: "Anton", sans-serif;
+  font-weight: 400;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+  color: var(--ink-blue);
+}
+
+.flPlCount {
+  padding-bottom: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  font-feature-settings: "tnum";
+  white-space: nowrap;
+}
+
+.flTablesHead .eyebrow,
+.flPlHead .eyebrow {
+  margin-bottom: 4px;
+  color: var(--orange-ink);
+  letter-spacing: 0.16em;
+}
+
+.flTablesHead .eyebrow {
+  font-feature-settings: "tnum";
+  white-space: nowrap;
+}
+
+/* The one entry to the manual bill dialog: outlined, no fill. */
+.flManualBtn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 36px;
+  padding: 0 7px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-blue);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.flManualBtn:hover {
+  background: var(--paper-warm);
+  border-color: var(--ink-blue);
+}
+
+/* The narrower column of a smaller laptop: the words stay, the icon goes. */
+@media (max-width: 1320px) {
+  .flManualBtn svg {
+    display: none;
+  }
+}
+
+/* ====== Tables list ====== */
+
+.flTables {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.flTablesList {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 0 1px 2px;
+}
+
+/* One table: glyph · short + full name · rate, then the status pill + live ₹. */
+.flRow {
+  position: relative;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  grid-template-areas:
+    "glyph title rate"
+    "status status status";
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 8px;
+  background: rgba(241, 234, 212, 0.5);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+}
+
+.flRow:hover {
+  background: var(--paper-cream);
+}
+
+.flRow:focus-visible {
+  outline: 2px solid var(--ball-orange);
+  outline-offset: 1px;
+}
+
+.flRow:active {
+  transform: scale(0.99);
+}
+
+/* The selected table: a brass outline (border + inset ring, never clipped). */
+.flRow.selected {
+  border-color: var(--brass);
+  box-shadow: inset 0 0 0 1px var(--brass);
+  background: var(--paper-cream);
+}
+
+/* A tiny table: felt fill, rail border, drawn in the table's orientation. */
+.flGlyph {
+  grid-area: glyph;
+  justify-self: center;
+  position: relative;
+  display: block;
+  width: 16px;
+  height: 26px;
+  border: 2px solid var(--rail-deep);
+  border-radius: 3px;
+  background: var(--felt-green);
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.18),
+    0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+.flGlyph.landscape {
+  width: 26px;
+  height: 16px;
+}
+
+.flGlyph.felt-blue {
+  background: var(--felt-blue);
+}
+
+.flGlyph.rail-black {
+  border-color: #0a0a0a;
+}
+
+/* Snooker: the baulk line near one cushion. */
+.flGlyph.game-snooker::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 24%;
+  height: 1px;
+  background: rgba(243, 234, 212, 0.5);
+}
+
+.flGlyph.game-snooker.landscape::before {
+  top: 0;
+  bottom: 0;
+  left: auto;
+  right: 24%;
+  width: 1px;
+  height: auto;
+}
+
+/* Pool: the foot spot. */
+.flGlyph.game-american-pool::before,
+.flGlyph.game-indian-pool::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 28%;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: rgba(243, 234, 212, 0.75);
+  transform: translate(-50%, -50%);
+}
+
+.flGlyph.landscape.game-american-pool::before,
+.flGlyph.landscape.game-indian-pool::before {
+  left: 72%;
+  top: 50%;
+}
+
+/* The cafe counter has no table: a bag icon in a small outline square. */
+.flGlyph.flCafeGlyph {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 6px;
+  background: var(--paper-warm);
+  color: var(--orange-ink);
+  box-shadow: none;
+}
+
+.flRowTitle {
+  grid-area: title;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.flShort {
+  flex: 0 0 auto;
+  font-family: "Anton", sans-serif;
+  font-weight: 400;
+  font-size: 18px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--ink-blue);
+}
+
+.flFull {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.flRate {
+  grid-area: rate;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  font-feature-settings: "tnum";
+  white-space: nowrap;
+}
+
+.flRowStatus {
+  grid-area: status;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Status pill: the spec words, a status dot, the status colour. A long label
+   ("Between frames · 2 · idle 1h 0m") wraps instead of losing its end. */
+.flPill {
+  --dot: var(--hairline-strong);
+  display: inline-block;
+  min-width: 0;
+  max-width: 100%;
+  padding: 2px 8px 2px 6px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 9px;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--ink-soft);
+  font-feature-settings: "tnum";
+}
+
+.flPill::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--dot);
+  vertical-align: 1px;
+}
+
+.flPill.is-free {
+  color: var(--ink-faint);
+}
+
+.flPill.is-seated {
+  --dot: var(--brass);
+  color: var(--ink);
+}
+
+.flPill.is-running {
+  --dot: var(--ball-green);
+  color: var(--felt-green-rim);
+  border-color: rgba(82, 168, 106, 0.55);
+  background: rgba(82, 168, 106, 0.14);
+}
+
+.flPill.is-running::before {
+  animation: flPulse 2s ease-in-out infinite;
+}
+
+.flPill.is-awaiting,
+.flPill.is-billing {
+  --dot: var(--ball-yellow);
+  color: var(--orange-ink);
+  border-color: rgba(220, 167, 50, 0.65);
+  background: rgba(220, 167, 50, 0.16);
+}
+
+.flLive {
+  flex: 0 0 auto;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--felt-green-rim);
+  font-feature-settings: "tnum";
+}
+
+.flRow.is-awaiting .flLive,
+.flRow.is-billing .flLive {
+  color: var(--orange-ink);
+}
+
+/* The rail's status dot shows only below 1200px. */
+.flDot {
+  display: none;
+}
+
+.flCafeRow {
+  flex: 0 0 auto;
+}
+
+@keyframes flPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(82, 168, 106, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 3px rgba(82, 168, 106, 0);
+  }
+}
+
+/* ====== Players panel ====== */
+
+.flPlayers {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.flPlList {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 0 8px;
+}
+
+.flSeats {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* One player: badge · name and tab on one head line, then phone (or the ✕
+   warning) · actions. The head spans the actions column, so a third button
+   never takes width from the name. */
+.flSeat {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  grid-template-areas:
+    "badge head head"
+    "badge meta actions";
+  align-items: center;
+  column-gap: 9px;
+  row-gap: 3px;
+  padding: 8px 2px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.flSeat.is-arming {
+  background: rgba(178, 63, 48, 0.05);
+}
+
+.flBadge {
+  grid-area: badge;
+  align-self: start;
+  margin-top: 1px;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--brass-soft);
+  border-radius: 50%;
+  background: var(--paper-cream);
+  color: var(--brass);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.flSeatHead {
+  grid-area: head;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.flSeatName {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.flSeatName strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.flGuestTag {
+  flex: 0 0 auto;
+  padding: 1px 4px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 4px;
+  font-style: normal;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+/* Green dot: this player is in the running frame. */
+.flInFrame {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ball-green);
+  box-shadow: 0 0 0 2px rgba(82, 168, 106, 0.22);
+}
+
+.flSeatTab {
+  flex: 0 0 auto;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--orange-ink);
+  font-feature-settings: "tnum";
+  white-space: nowrap;
+}
+
+.flSeatMeta {
+  grid-area: meta;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--ink-soft);
+  font-feature-settings: "tnum";
+}
+
+.flSeatMeta.is-warn {
+  color: var(--orange-ink);
+  font-weight: 700;
+}
+
+.flSeatMeta.is-danger {
+  color: var(--ball-red);
+  font-weight: 800;
+}
+
+.flSeatMeta svg {
+  flex: 0 0 auto;
+}
+
+/* Top-aligned: when the ✕ warning wraps, the ✕ stays under the finger. */
+.flSeatActions {
+  grid-area: actions;
+  align-self: start;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.flPay {
+  min-height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--felt-green-rim);
+  border-radius: 5px;
+  background: var(--felt-green);
+  color: var(--ball-cue);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.flPay:hover {
+  background: var(--felt-green-rim);
+}
+
+.flPay:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.flIconBtn {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink-soft);
+}
+
+.flIconBtn:hover {
+  background: var(--paper-warm);
+  color: var(--ink);
+}
+
+.flIconBtn.flLeave {
+  color: var(--ball-red);
+  border-color: rgba(178, 63, 48, 0.32);
+}
+
+.flIconBtn.flLeave:hover {
+  background: rgba(178, 63, 48, 0.08);
+  border-color: var(--ball-red);
+}
+
+.flIconBtn.flLeave.confirming {
+  background: var(--ball-red);
+  border-color: var(--ball-red);
+  color: var(--ball-cue);
+}
+
+/* aria-disabled: the ✕ still takes a tap, to show why it is blocked. */
+.flIconBtn:disabled,
+.flIconBtn[aria-disabled="true"] {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.flIconBtn:disabled:hover,
+.flIconBtn[aria-disabled="true"]:hover {
+  background: transparent;
+}
+
+/* Rejoin: an outline button, so it never competes with the filled Pay. */
+.flRejoin {
+  min-height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink-blue);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.flRejoin:hover {
+  background: var(--paper-warm);
+}
+
+/* Players who left the table: dimmed, but the ₹ and the buttons stay full strength. */
+.flSeat.is-left .flBadge,
+.flSeat.is-left .flSeatName,
+.flSeat.is-left .flSeatMeta {
+  opacity: 0.6;
+}
+
+.flSubhead {
+  margin: 12px 0 0;
+  padding: 0 2px 4px;
+  border-bottom: 1px solid var(--hairline);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.flPlEmpty {
+  display: grid;
+  gap: 4px;
+  padding: 24px 8px;
+  text-align: center;
+}
+
+.flPlEmpty p {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.flPlEmpty span {
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--ink-faint);
+}
+
+.flCounterNote {
+  margin: 14px 2px 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+/* ====== Add a player (pinned at the bottom) ====== */
+
+.flAdd {
+  flex: 0 0 auto;
+  position: relative;
+  padding: 8px 0 6px;
+  border-top: 1px solid var(--hairline-strong);
+}
+
+.flAddRow {
+  display: flex;
+  gap: 6px;
+}
+
+.flField {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 6px 0 9px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 6px;
+  background: var(--paper-warm);
+  color: var(--ink-faint);
+}
+
+.flField:focus-within {
+  border-color: var(--ball-orange);
+  background: var(--ball-cue);
+  color: var(--ink-soft);
+}
+
+.flField.is-disabled {
+  opacity: 0.6;
+}
+
+.flField input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 8px 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.flField input::placeholder {
+  color: var(--ink-faint);
+}
+
+.flClear {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--hairline);
+  color: var(--ink-soft);
+}
+
+.flClear:hover {
+  background: var(--hairline-strong);
+  color: var(--ink);
+}
+
+.flGuestBtn {
+  flex: 0 0 auto;
+  min-height: 38px;
+  padding: 0 11px;
+  gap: 5px;
+  font-size: 12.5px;
+}
+
+.flGuestBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.flAddError {
+  margin: 6px 2px 0;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--ball-red);
+}
+
+/* Suggestions open upward: the field sits at the bottom of the panel. */
+.flSuggest {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% - 2px);
+  z-index: 20;
+  max-height: min(340px, 60vh);
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px 0 0;
+  list-style: none;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 8px;
+  background: var(--paper-cream);
+  box-shadow: 0 -10px 24px rgba(36, 24, 18, 0.16);
+}
+
+.flOption {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "name tab"
+    "meta meta";
+  column-gap: 8px;
+  row-gap: 1px;
+  padding: 7px 10px 7px 8px;
+  border-left: 3px solid transparent;
+  cursor: pointer;
+}
+
+.flOption.is-active {
+  border-left-color: var(--brass);
+  background: rgba(156, 111, 46, 0.14);
+}
+
+.flOption.is-blocked {
+  cursor: not-allowed;
+}
+
+.flOption.is-blocked .flOptName strong {
+  color: var(--ink-faint);
+}
+
+.flOptName {
+  grid-area: name;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.flOptName strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.flOptTab {
+  grid-area: tab;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--orange-ink);
+  font-feature-settings: "tnum";
+}
+
+.flOptMeta {
+  grid-area: meta;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  font-feature-settings: "tnum";
+}
+
+.flOptMeta b.is-blocked {
+  font-weight: 700;
+  color: var(--ball-red);
+}
+
+.flOptMeta b.is-move {
+  font-weight: 700;
+  color: var(--felt-green-rim);
+}
+
+/* The last row: add as new, or why that can't happen. */
+.flOptNew {
+  border-top: 1px solid var(--hairline);
+}
+
+.flOptNew .flOptName {
+  color: var(--felt-green-rim);
+}
+
+.flOptNew .flOptName strong {
+  white-space: normal;
+  color: var(--felt-green-rim);
+}
+
+.flOptNew.is-blocked .flOptName,
+.flOptNew.is-blocked .flOptName strong {
+  color: var(--orange-ink);
+}
+
+.flSuggestHint {
+  padding: 5px 10px 6px;
+  border-top: 1px solid var(--hairline);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+}
+
+/* ====== Rate footer ====== */
+
+.flRateFoot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 2px 2px;
+  border-top: 1px solid var(--hairline);
+}
+
+.flRateRule {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.flRateRule em {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-soft);
+  font-feature-settings: "tnum";
+}
+
+.flRateFoot strong {
+  flex: 0 0 auto;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--brass);
+  font-feature-settings: "tnum";
+}
+
+.flRateFoot small {
+  margin-left: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+/* ====== Touch ====== */
+
+@media (pointer: coarse) {
+  /* 16px stops iOS Safari from zooming into the field on focus. */
+  .flField input {
+    font-size: 16px;
+  }
+
+  /* A blocked (disabled) field never takes focus, so iOS never zooms into it,
+     and its reason fits the field. */
+  .flField.is-disabled input {
+    font-size: 13px;
+  }
+
+  .flIconBtn {
+    width: 34px;
+    height: 34px;
+  }
+
+  .flPay,
+  .flRejoin {
+    min-height: 34px;
+    padding: 0 12px;
+  }
+
+  .flGuestBtn,
+  .flField {
+    min-height: 42px;
+  }
+
+  .flManualBtn {
+    min-height: 40px;
+  }
+
+  .flOption {
+    padding-top: 9px;
+    padding-bottom: 9px;
+  }
+
+  .flSuggestHint {
+    display: none;
+  }
+}
+
+/* iPad on the floor: the add field moves to the top of the panel (above the
+   on-screen keyboard) and its suggestions open downward. */
+@media (pointer: coarse) and (max-width: 1199px) {
+  .flPlHead {
+    order: 0;
+  }
+
+  .flAdd {
+    order: 1;
+    padding: 8px 0;
+    border-top: 0;
+    border-bottom: 1px solid var(--hairline-strong);
+  }
+
+  .flPlList {
+    order: 2;
+  }
+
+  .flRateFoot {
+    order: 3;
+  }
+
+  .flSuggest {
+    top: calc(100% - 2px);
+    bottom: auto;
+    box-shadow: 0 10px 24px rgba(36, 24, 18, 0.16);
+  }
+}
+
+/* Below 1200px the tables column is a narrow rail: glyph, short name, a status
+   dot and the live amount (the full status stays in each row's title/label). */
+@media (max-width: 1199px) {
+  /* Seat rows: name and tab on the first line; the meta and the actions each
+     get a full line below. */
+  .flSeat {
+    grid-template-columns: 28px minmax(0, 1fr) auto;
+    grid-template-areas:
+      "badge head head"
+      "badge meta meta"
+      "badge actions actions";
+  }
+
+  /* Rail: keep the live ₹ under the short name, drop the long pill words. */
+  .flRow .flRowStatus {
+    display: flex;
+    justify-content: center;
+    grid-area: auto;
+  }
+
+  .flRow .flRowStatus .flPill {
+    display: none;
+  }
+
+  .flRow .flRowStatus .flLive {
+    font-size: 10.5px;
+  }
+
+  /* The head stacks: TABLES above the icon-only Manual bill button. */
+  .flTablesHead {
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 40px;
+    padding: 4px 0 6px;
+  }
+
+  .flTablesHead h2 {
+    font-size: 15px;
+    text-align: center;
+  }
+
+  .flManualBtn {
+    width: 44px;
+    padding: 0;
+  }
+
+  .flManualBtn svg {
+    display: block;
+  }
+
+  .flTablesHead .eyebrow,
+  .flManualBtn span,
+  .flFull,
+  .flRate {
+    display: none;
+  }
+
+  .flRow {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "glyph"
+      "title";
+    justify-items: center;
+    row-gap: 5px;
+    padding: 9px 4px 7px;
+  }
+
+  .flRowTitle {
+    justify-content: center;
+  }
+
+  .flShort {
+    font-size: 15px;
+  }
+
+  .flDot {
+    display: block;
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--hairline-strong);
+    box-shadow: 0 0 0 1.5px var(--paper-cream);
+  }
+
+  .flDot.is-seated {
+    background: var(--brass);
+  }
+
+  .flDot.is-running {
+    background: var(--ball-green);
+  }
+
+  .flDot.is-awaiting,
+  .flDot.is-billing {
+    background: var(--ball-yellow);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flPill.is-running::before {
+    animation: none;
+  }
+
+  .flRow:active {
+    transform: none;
+  }
+}

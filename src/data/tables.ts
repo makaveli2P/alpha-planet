@@ -16,8 +16,29 @@ export const tables: TableConfig[] = [
 ];
 
 // Snooker loser-pays pricing: a table's rate covers up to BASE_PLAYERS players,
-// and each player above that adds ₹0.5/min (₹30/hr) while they are at the
-// table. The rate drops back the moment a player leaves. On the ₹240/hr tables
-// that is ₹4/min for 2 players, ₹4.5 for 3, ₹5 for 4.
+// and each player above that adds ₹0.5/min (₹30/hr) from the moment they join.
+// Within a frame the rate never drops: a player who leaves still counts until
+// the frame ends (billing.frameHeadcountAt). On the ₹240/hr tables that is
+// ₹4/min for 2 players, ₹4.5 for 3, ₹5 for 4.
 export const BASE_PLAYERS = 2;
 export const EXTRA_PLAYER_RATE_PER_HOUR = 30;
+
+// The venue's business day starts at 6 AM, so a late night (say 23:00–01:30)
+// counts as one day in "today" totals, bill numbers and tab day groups.
+export const DAY_START_HOUR = 6;
+
+// The cafe/takeaway station: counter orders with no physical table.
+export const counterTable: TableConfig = {
+  id: "counter",
+  name: "Cafe",
+  type: "Takeaway",
+  game: "snooker",
+  orientation: "portrait",
+  ratePerHour: 0,
+  x: 0,
+  y: 0,
+  w: 0,
+  h: 0,
+  felt: "green",
+  rail: "brown"
+};

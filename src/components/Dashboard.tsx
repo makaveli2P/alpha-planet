@@ -1,7 +1,8 @@
 import React from "react";
-import type { HourRevenue, Metrics, RevenueMix, Session, TableConfig, TablePerformance, TenderTotals } from "../types";
-import { calculateSessionTotals, paidPerPlayer } from "../lib/billing";
+import type { AppState, HourRevenue, Metrics, RevenueMix, Session, TablePerformance, TenderTotals } from "../types";
+import { calculateSessionTotals, startOfDay } from "../lib/billing";
 import { formatDuration, formatMoney } from "../lib/format";
+import { exceptionsToday } from "../lib/manualBill";
 import { Receipt } from "./Receipt";
 
 // Chart series colors — a validated, on-brand slice of the ball-accent set.
@@ -21,29 +22,52 @@ const C = {
   peak: "#e08a2c"
 };
 
+// One row of "Recent bills": a whole bill / counter order, or a tab payment.
+type RecentRow =
+  | { kind: "bill"; at: number; session: Session }
+  | { kind: "payment"; at: number; paymentId: string };
+
+type ReceiptTarget = { sessionId: string } | { paymentId: string };
+
 export function Dashboard({
   metrics,
-  sessions,
-  tables,
+  state,
   now,
   hideMoney = false
 }: {
   metrics: Metrics;
-  sessions: Session[];
-  tables: TableConfig[];
+  state: AppState;
   now: number;
   hideMoney?: boolean;
 }) {
-  const [receiptSession, setReceiptSession] = React.useState<Session | null>(null);
+  const [receipt, setReceipt] = React.useState<ReceiptTarget | null>(null);
   const money = (value: number) => (hideMoney ? "₹ •••" : formatMoney(value));
+  const { sessions, tables, customers } = state;
+  const customerName = (id?: string) => customers.find((customer) => customer.id === id)?.name ?? "Customer";
 
-  const recentBills = sessions
-    .filter((session) => session.settledAt && !session.voidedAt)
-    .sort((a, b) => (b.settledAt ?? 0) - (a.settledAt ?? 0))
+  // Whole bills and counter orders (a loser-pays sitting is not a bill — its
+  // money is on tabs), plus tab payments. Newest first.
+  const recent: RecentRow[] = [
+    ...sessions
+      .filter((session) => session.settledAt && !session.voidedAt && session.splitMode !== "frames")
+      .map((session): RecentRow => ({ kind: "bill", at: session.settledAt ?? 0, session })),
+    ...state.payments.map((payment): RecentRow => ({ kind: "payment", at: payment.at, paymentId: payment.id }))
+  ]
+    .sort((a, b) => b.at - a.at)
     .slice(0, 8);
 
+  const dayStart = startOfDay(now);
+  const when = (at: number) => {
+    const time = new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    return at >= dayStart ? time : `${new Date(at).toLocaleDateString([], { day: "numeric", month: "short" })} · ${time}`;
+  };
+
+  const receiptSession = receipt && "sessionId" in receipt ? sessions.find((session) => session.id === receipt.sessionId) : undefined;
+  const receiptPaymentId = receipt && "paymentId" in receipt ? receipt.paymentId : undefined;
+
   const { revenueMix: mix, tenderTotals: tender } = metrics;
-  const grossGap = mix.gross - metrics.totalRevenue; // discount + round-off given away
+  // The audit line: manual bills entered today and voids made today.
+  const exceptions = exceptionsToday(state, now);
   const peak = metrics.peakHour != null ? metrics.revenueByHour.find((h) => h.hour === metrics.peakHour) : undefined;
 
   return (
@@ -65,9 +89,10 @@ export function Dashboard({
           <p className="eyebrow onDark">Total sales</p>
           <strong className="display heroTotal">{money(metrics.totalRevenue)}</strong>
           <p className="heroCaption">
-            {metrics.settledSessions} {metrics.settledSessions === 1 ? "bill" : "bills"}
-            {mix.gross > 0 && ` · ${money(mix.gross)} gross`}
-            {grossGap > 0 && ` · ${money(grossGap)} off`}
+            {metrics.settledSessions} {metrics.settledSessions === 1 ? "bill" : "bills"} · {money(metrics.collected)} collected ·{" "}
+            {money(metrics.openTabs)} on tabs
+            {exceptions.manualCount > 0 ? ` · Manual ${exceptions.manualCount} · ${money(exceptions.manualTotal)}` : ""}
+            {exceptions.voidCount > 0 ? ` · Voids ${exceptions.voidCount} · ${money(exceptions.voidTotal)}` : ""}
           </p>
         </div>
         <div className="dashHeroChart">
@@ -84,10 +109,11 @@ export function Dashboard({
       </div>
 
       {/* Operational counts — the units the loser-pays flow unlocks. */}
-      <div className="statStrip">
-        <Stat label="Avg session" value={metrics.averageMinutes ? formatDuration(metrics.averageMinutes) : "—"} />
+      <div className="statStrip dbStats6">
+        <Stat label="Avg session" value={metrics.averageMinutes ? formatDuration(metrics.averageMinutes) : "—"} sub="whole table" />
         <Stat label="Frames played" value={`${metrics.totalFrames}`} sub={metrics.avgFrames ? `${metrics.avgFrames} avg` : undefined} />
-        <Stat label="Players" value={`${metrics.playersServed}`} sub="snooker" />
+        <Stat label="Players" value={`${metrics.playersServed}`} sub="seated today" />
+        <Stat label="Tab payments" value={`${metrics.tabPayments}`} sub={metrics.toTabs > 0 ? `${money(metrics.toTabs)} to tabs` : undefined} />
         <Stat label="Discounts" value={money(metrics.discounts)} />
         <Stat label="Takeaway" value={`${metrics.takeawayOrders}`} sub={metrics.takeawayOrders === 1 ? "order" : "orders"} />
       </div>
@@ -99,7 +125,7 @@ export function Dashboard({
         </div>
         <div className="chartBlock">
           <h3>How today was paid</h3>
-          <TenderRibbon tender={tender} splitBills={metrics.splitBillCount} money={money} />
+          <TenderRibbon tender={tender} tabPayments={metrics.tabPayments} money={money} />
         </div>
       </div>
 
@@ -114,23 +140,46 @@ export function Dashboard({
           <InsightList rows={metrics.itemRankings} valuePrefix="×" />
         </div>
         <div className="historyPanel">
-          <h3>Recent settled bills</h3>
-          {recentBills.length === 0 ? (
-            <p className="muted">Settled bills will appear here.</p>
+          <h3>Recent bills</h3>
+          {recent.length === 0 ? (
+            <p className="muted">Paid bills and tab payments will appear here.</p>
           ) : (
             <div className="receiptList">
-              {recentBills.map((session) => {
+              {recent.map((row) => {
+                if (row.kind === "payment") {
+                  const payment = state.payments.find((entry) => entry.id === row.paymentId);
+                  if (!payment) return null;
+                  const count = payment.chargeIds.length;
+                  return (
+                    <button className="receiptRow" key={`p-${payment.id}`} onClick={() => setReceipt({ paymentId: payment.id })}>
+                      <div>
+                        <strong>Tab · {customerName(payment.customerId)}</strong>
+                        <span>
+                          {payment.mode} · {when(payment.at)}
+                        </span>
+                      </div>
+                      <span>
+                        {count} {count === 1 ? "charge" : "charges"}
+                        {payment.discount > 0 ? ` · ${money(payment.discount)} off` : ""}
+                      </span>
+                      <strong>{money(payment.amount)}</strong>
+                    </button>
+                  );
+                }
+                const session = row.session;
                 const table = tables.find((entry) => entry.id === session.tableId);
                 const totals = calculateSessionTotals(session, now);
                 const isKitchen = session.tableId === "counter";
                 const name = table?.name ?? (isKitchen ? "Cafe" : session.tableId);
+                const tabCharge = session.tabChargeId ? state.charges.find((charge) => charge.id === session.tabChargeId) : undefined;
+                const paidBy = session.tabChargeId ? `On tab · ${customerName(tabCharge?.customerId)}` : session.paymentMode ?? "—";
                 return (
-                  <button className="receiptRow" key={session.id} onClick={() => setReceiptSession(session)}>
+                  <button className="receiptRow" key={`s-${session.id}`} onClick={() => setReceipt({ sessionId: session.id })}>
                     <div>
                       <strong>{session.customerName ? `${name} · ${session.customerName}` : name}</strong>
                       <span>
-                        {session.paymentMode ?? (paidPerPlayer(session) ? "Split" : "—")} ·{" "}
-                        {new Date(session.settledAt ?? 0).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        {paidBy}
+                        {session.manual ? " · manual" : ""} · {when(row.at)}
                       </span>
                     </div>
                     <span>{isKitchen ? "Takeaway" : formatDuration(totals.minutes)}</span>
@@ -143,8 +192,15 @@ export function Dashboard({
         </div>
       </div>
 
-      {receiptSession && (
-        <Receipt session={receiptSession} tables={tables} sessions={sessions} now={now} hideMoney={hideMoney} onClose={() => setReceiptSession(null)} />
+      {receipt && (receiptSession || receiptPaymentId) && (
+        <Receipt
+          state={state}
+          now={now}
+          hideMoney={hideMoney}
+          session={receiptSession}
+          paymentId={receiptPaymentId}
+          onClose={() => setReceipt(null)}
+        />
       )}
     </section>
   );
@@ -225,7 +281,7 @@ function MixDonut({ mix, money }: { mix: RevenueMix; money: (value: number) => s
   const total = mix.gross;
 
   if (total <= 0) {
-    return <div className="chartEmpty">No sales settled yet.</div>;
+    return <div className="chartEmpty">No sales yet today.</div>;
   }
 
   const R = 46;
@@ -281,11 +337,11 @@ function MixDonut({ mix, money }: { mix: RevenueMix; money: (value: number) => s
 
 function TenderRibbon({
   tender,
-  splitBills,
+  tabPayments,
   money
 }: {
   tender: TenderTotals;
-  splitBills: number;
+  tabPayments: number;
   money: (value: number) => string;
 }) {
   const segs = [
@@ -297,7 +353,7 @@ function TenderRibbon({
   const total = segs.reduce((sum, s) => sum + s.value, 0);
 
   if (total <= 0) {
-    return <div className="chartEmpty">No payments settled yet.</div>;
+    return <div className="chartEmpty">No money collected yet today.</div>;
   }
 
   return (
@@ -326,9 +382,9 @@ function TenderRibbon({
           </div>
         ))}
       </div>
-      {splitBills > 0 && (
+      {tabPayments > 0 && (
         <p className="tenderNote">
-          {splitBills} {splitBills === 1 ? "bill" : "bills"} split across tenders
+          Includes {tabPayments} tab {tabPayments === 1 ? "payment" : "payments"}
         </p>
       )}
     </div>
@@ -337,15 +393,21 @@ function TenderRibbon({
 
 // ====== Per-table utilization meters (fuel gauges) ======
 
+// A table counts as idle only when nothing at all happened on it today (no
+// sitting, no frame, no charge, nobody seated).
+function isIdle(row: TablePerformance) {
+  return row.sessions === 0 && row.frames === 0 && row.minutes === 0 && row.revenue === 0 && row.players === 0;
+}
+
 function TableMeters({ rows, money }: { rows: TablePerformance[]; money: (value: number) => string }) {
-  const active = rows.filter((row) => row.sessions > 0);
+  const active = rows.filter((row) => !isIdle(row));
   if (active.length === 0) {
-    return <div className="chartEmpty">No table sessions settled yet.</div>;
+    return <div className="chartEmpty">No table play yet today.</div>;
   }
   return (
-    <div className="tableMeters">
+    <div className="tableMeters dbMeters">
       {rows.map((row) => {
-        const idle = row.sessions === 0;
+        const idle = isIdle(row);
         return (
           <div className={`meterRow${idle ? " idle" : ""}`} key={row.id}>
             <div className="meterWho">
@@ -364,10 +426,19 @@ function TableMeters({ rows, money }: { rows: TablePerformance[]; money: (value:
               ) : (
                 <>
                   <span>{formatDuration(row.minutes)}</span>
-                  {row.game === "snooker" && row.frames > 0 && <span>{row.frames} frames</span>}
+                  {row.frames > 0 && (
+                    <span>
+                      {row.frames} {row.frames === 1 ? "frame" : "frames"}
+                    </span>
+                  )}
                   <span>
                     {row.sessions} {row.sessions === 1 ? "session" : "sessions"}
                   </span>
+                  {row.players > 0 && (
+                    <span>
+                      {row.players} {row.players === 1 ? "player" : "players"}
+                    </span>
+                  )}
                 </>
               )}
             </div>
@@ -393,7 +464,7 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
 
 function InsightList({ rows, valuePrefix = "" }: { rows: { name: string; value: number | string }[]; valuePrefix?: string }) {
   if (rows.length === 0) {
-    return <p className="muted">No settled sales yet.</p>;
+    return <p className="muted">No cafe sales yet today.</p>;
   }
   return (
     <>
