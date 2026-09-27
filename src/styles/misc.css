@@ -1,0 +1,362 @@
+/* misc — cafe column (rail, search, summary), top bar save pill, dashboard strip, settings backup.
+   See SPEC-v2. Class prefixes: mp (MenuPanel), tb (TopBar), db (Dashboard),
+   st (SettingsView). */
+
+/* ====== MenuPanel: category chips ====== */
+
+/* Every category shows at once: the chips wrap onto as many rows as they need
+   and never scroll. Sentence case and tight padding keep 18 chips to about 6
+   rows, so the menu list keeps its room. */
+.categoryRail.mpCats {
+  flex: 0 0 auto;
+  padding: 8px 0 6px;
+}
+
+.categoryRail button {
+  min-height: 28px;
+  padding: 0 8px;
+  font-size: 11.5px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* ====== MenuPanel: search clear button ====== */
+
+.mpClear {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  padding: 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink-soft);
+}
+
+.mpClear:hover {
+  background: var(--paper-edge);
+  color: var(--ink);
+}
+
+/* ====== MenuPanel: category headings (All, and search results) ====== */
+
+/* A flex column, not a grid: a grid item's containing block is only its own
+   row, so a sticky heading in a grid never sticks. */
+.menuPanel .menuList {
+  display: flex;
+  flex-direction: column;
+}
+
+.menuPanel .menuList > * {
+  flex: 0 0 auto;
+}
+
+.mpGroup {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0;
+  padding: 8px 1px 5px;
+  border-bottom: 1px solid var(--hairline-strong);
+  background: var(--surface);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+/* Bigger touch targets on the iPad. */
+@media (pointer: coarse) {
+  .categoryRail button {
+    min-height: 32px;
+    padding: 0 9px;
+  }
+
+  .priceButtons button {
+    min-height: 40px;
+  }
+
+  .qtyStepper button {
+    width: 34px;
+    height: 34px;
+  }
+
+  .mpClear {
+    width: 34px;
+    height: 34px;
+  }
+
+  /* iOS Safari zooms the page when an input with text below 16px gets focus. */
+  .searchBox input {
+    font-size: 16px;
+  }
+}
+
+/* ====== MenuPanel: empty search + no-sitting hint ====== */
+
+.mpEmpty {
+  margin: 10px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.mpHint {
+  flex: 0 0 auto;
+  margin: 8px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--hairline-strong);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--orange-ink);
+}
+
+/* ====== MenuPanel: header + one-line summary ====== */
+
+/* "Add to {table}": a long table name ends in an ellipsis. */
+.menuPanel .sectionHeader > div {
+  min-width: 0;
+}
+
+.menuPanel .sectionHeader h2 {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* What the sitting's list holds; the list itself is in the Table column. */
+.mpSum {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 32px;
+  margin-top: 6px;
+  padding: 8px 4px 0 0;
+  border-top: 1px solid var(--hairline-strong);
+}
+
+.mpSum span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.mpSum strong {
+  flex: 0 0 auto;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--ink);
+  font-feature-settings: "tnum";
+}
+
+/* ====== TopBar: "Not saved" pill ====== */
+
+.tbSavePill {
+  flex: 0 0 auto;
+  margin-left: auto;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 4px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  border-radius: 999px;
+  background: var(--ball-red);
+  color: var(--ball-cue);
+  text-align: left;
+  font-family: inherit;
+}
+
+.tbSavePill:hover {
+  background: #9a3427;
+}
+
+.tbSavePill > span {
+  display: grid;
+  line-height: 1.2;
+}
+
+.tbSavePill strong {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.tbSavePill em {
+  font-style: normal;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: rgba(243, 234, 212, 0.88);
+}
+
+.tbSavePill + .privacyToggle {
+  margin-left: 0;
+}
+
+/* ====== Dashboard: six-cell stat strip ====== */
+
+.statStrip.dbStats6 {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+@media (max-width: 1120px) {
+  .statStrip.dbStats6 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* Per-table meters: a fixed meta column keeps every gauge the same length. */
+.dbMeters .meterRow {
+  grid-template-columns: 150px minmax(90px, 1fr) 250px auto;
+}
+
+.dbMeters .meterMeta {
+  justify-content: flex-end;
+}
+
+/* ====== SettingsView: policy + backup ====== */
+
+.stFoot {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 420px));
+  gap: 0 48px;
+  align-items: start;
+}
+
+.stBackup {
+  position: relative;
+}
+
+.stPolicy .ghostAction:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.stPolicy .ghostAction:disabled:hover {
+  background: var(--paper-warm);
+}
+
+.stBackup .stSaveWarn {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--ball-red);
+  background: rgba(178, 63, 48, 0.08);
+  color: var(--ball-red);
+  font-weight: 700;
+}
+
+.stBackup .stSaveWarn svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.stStorage {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.stStorage span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.stStorage strong {
+  font-weight: 800;
+  color: var(--ink);
+  font-feature-settings: "tnum";
+}
+
+.stStorageTrack {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--paper-edge);
+  overflow: hidden;
+}
+
+.stStorageFill {
+  height: 100%;
+  background: var(--felt-green);
+}
+
+.stStorageFill.high {
+  background: var(--ball-red);
+}
+
+.stBackupActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.stBackup .stBackupActions .ghostAction {
+  margin-top: 0;
+}
+
+.stBackup .ghostAction.danger.confirming {
+  background: var(--ball-red);
+  color: var(--ball-cue);
+  border-color: transparent;
+}
+
+/* The real file input stays in the page (iPad Safari needs that for a
+   scripted click) but out of sight; the Import button opens it. */
+.stFileInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.stPending {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--hairline-strong);
+}
+
+.stBackup .stPending p {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+}
+
+.stPending p strong {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.stPending p span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.stBackup .stError {
+  color: var(--ball-red);
+  font-weight: 700;
+}
+
+.stBackup .stLoaded {
+  color: var(--felt-green);
+  font-weight: 700;
+}
+
+@media (max-width: 920px) {
+  .stFoot {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

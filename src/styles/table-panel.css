@@ -1,0 +1,1132 @@
+/* ============================================================
+   table-panel — the center column of the floor (SPEC-v2).
+   Header with status pill + mode chip; loser-pays frames; the
+   whole bill (whole-table clock and the counter) with Put on tab.
+   Reuses .billPanel, .billHeader, .totalHero, .adjustments,
+   .timeField, .emptyState, .settleConfirm and the button classes.
+   ============================================================ */
+
+.tablePanel {
+  gap: 0;
+}
+
+.tablePanel button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ====== Header: name + status pill + mode chip ====== */
+
+/* No shrink: the badges need the full height, and .tpBody takes the overflow. */
+.tpHeader {
+  align-items: flex-start;
+  flex-shrink: 0;
+}
+
+.tpHeader > div:first-child {
+  min-width: 0;
+}
+
+.tpHeader h2 {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tpBadges {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+}
+
+.tpPill {
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline-strong);
+  background: var(--paper-warm);
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-feature-settings: "tnum";
+}
+
+.tpPill::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--rail-walnut);
+}
+
+.tpPill.running {
+  background: rgba(82, 168, 106, 0.14);
+  border-color: var(--ball-green);
+  color: var(--felt-green-rim);
+}
+
+.tpPill.running::before {
+  background: var(--ball-green);
+  box-shadow: none;
+}
+
+.tpPill.awaiting,
+.tpPill.billing {
+  background: rgba(220, 167, 50, 0.18);
+  border-color: var(--ball-yellow);
+  color: var(--orange-ink);
+}
+
+.tpPill.awaiting::before,
+.tpPill.billing::before {
+  background: var(--ball-yellow);
+  box-shadow: none;
+}
+
+.tpPill.seated {
+  border-color: rgba(156, 111, 46, 0.5);
+  color: var(--ink);
+}
+
+.tpPill.seated::before {
+  background: var(--brass);
+  box-shadow: none;
+}
+
+.tpMode {
+  padding: 2px 8px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--orange-ink);
+}
+
+/* ====== Shared bits ====== */
+
+/* The scrolling middle of a loser-pays sitting; Close table stays below it. */
+.tpBody {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.tpHint {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.tpHint.warn {
+  color: var(--orange-ink);
+  font-weight: 700;
+}
+
+.tpGridTitle h3,
+.olHead h3,
+.tpPickHead h3 {
+  margin: 0;
+  font-family: "Anton", sans-serif;
+  font-weight: 400;
+  font-size: 16px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--orange-ink);
+}
+
+/* ====== Start buttons (free table, between frames) ====== */
+
+.tpStart {
+  display: grid;
+  gap: 8px;
+}
+
+.tpStart .primaryAction {
+  width: 100%;
+  min-height: 52px;
+  font-size: 15px;
+}
+
+.tpStart .primaryAction em {
+  font-style: normal;
+  font-weight: 600;
+  opacity: 0.82;
+}
+
+.tpStart .ghostAction {
+  width: 100%;
+  min-height: 42px;
+}
+
+/* On the felt of a free table. */
+.tpStart.onFelt {
+  width: 100%;
+  max-width: 380px;
+  margin-top: 2px;
+}
+
+.tpStart.onFelt .ghostAction {
+  background: transparent;
+  color: var(--ball-cue);
+  border-color: rgba(243, 234, 212, 0.45);
+}
+
+.tpStart.onFelt .ghostAction:hover {
+  background: rgba(243, 234, 212, 0.1);
+}
+
+.emptyState .tpStart .tpHint {
+  margin: 0;
+  max-width: none;
+  color: rgba(243, 234, 212, 0.75);
+}
+
+.tpFree > p {
+  max-width: 340px;
+}
+
+.tpFree .tableHistoryStrip {
+  max-width: 420px;
+}
+
+.tpBetween {
+  display: grid;
+  gap: 10px;
+  padding: 10px 0 14px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.tpBetween .eyebrow {
+  margin: 0;
+  color: var(--brass);
+}
+
+/* ====== A frame (running or waiting for its lowest scorer) ====== */
+
+.tpFrame {
+  display: grid;
+  gap: 10px;
+  padding: 8px 0 14px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.tpFrame .eyebrow {
+  margin: 0 0 2px;
+  color: var(--felt-green-rim);
+}
+
+.tpFrame.awaiting .eyebrow {
+  color: var(--orange-ink);
+}
+
+.tpFrameTop {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.tpFrameTop > div:first-child {
+  min-width: 0;
+}
+
+.tpClock {
+  display: block;
+  font-family: "Anton", sans-serif;
+  font-weight: 400;
+  font-size: 58px;
+  line-height: 0.95;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+  font-feature-settings: "tnum";
+}
+
+.tpClock.stopped {
+  flex: 0 0 auto;
+  font-size: 34px;
+  color: var(--ink-soft);
+}
+
+.tpAsk {
+  margin: 0;
+  font-family: "Anton", sans-serif;
+  font-weight: 400;
+  font-size: 24px;
+  line-height: 1.05;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--ink-blue);
+}
+
+.tpFrameMoney {
+  flex: 0 0 auto;
+  display: grid;
+  gap: 4px;
+  justify-items: end;
+  text-align: right;
+}
+
+.tpFrameMoney > span {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.tpFrameMoney strong {
+  margin-left: 6px;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--felt-green-rim);
+  font-feature-settings: "tnum";
+}
+
+.tpFrameMoney em {
+  display: block;
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  font-feature-settings: "tnum";
+}
+
+.tpChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tpChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 999px;
+  background: var(--paper-cream);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.tpChip::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ball-green);
+}
+
+.tpChip.left {
+  background: transparent;
+  color: var(--ink-faint);
+}
+
+.tpChip.left::before {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--ink-faint);
+}
+
+.tpFrameActions {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tpFrameActions .ghostAction {
+  min-height: 46px;
+}
+
+.tpEndBtn {
+  min-height: 46px;
+  padding: 0 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 6px;
+  background: var(--ball-red);
+  color: var(--ball-cue);
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.02em;
+}
+
+.tpEndBtn:hover {
+  background: #9a3527;
+}
+
+.tpTime {
+  margin-left: auto;
+  width: 120px;
+}
+
+/* Started and Ended side by side at the right. */
+.tpTime + .tpTime {
+  margin-left: 0;
+}
+
+/* What the lowest scorer takes: table time + the table order. The order's
+   own lines (OrderLines, variant "rows") sit between the two fixed rows. */
+.tpBreakdown {
+  display: grid;
+  border-top: 1px solid var(--hairline);
+}
+
+.tpBreakdown > .tpBdRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--hairline);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.tpBdRow em {
+  margin-left: 8px;
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.tpBdRow strong {
+  font-weight: 800;
+  font-feature-settings: "tnum";
+}
+
+.tpBreakdown > .tpBdRow.tpBreakdownTotal {
+  border-bottom: 0;
+  border-top: 1px solid var(--hairline-strong);
+  font-weight: 700;
+}
+
+.tpBreakdownTotal strong {
+  font-size: 17px;
+  color: var(--felt-green-rim);
+}
+
+.tpLosers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tpLoserBtn {
+  min-height: 46px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 6px;
+  background: var(--paper-warm);
+  color: var(--ink);
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.tpLoserBtn svg {
+  color: var(--ball-red);
+}
+
+.tpLoserBtn:hover {
+  background: var(--paper-edge);
+  border-color: var(--ball-red);
+}
+
+/* ====== Frames grid ====== */
+
+.tpGrid {
+  padding: 10px 0 6px;
+}
+
+.tpGridTitle {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.tpGridTitle span {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  font-feature-settings: "tnum";
+}
+
+.tpGridRow {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1.4fr);
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-top: 1px solid var(--hairline);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  font-feature-settings: "tnum";
+}
+
+.tpGridRow.head {
+  border-top: 0;
+  padding: 2px 0 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.tpGridRow em {
+  display: block;
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ink-faint);
+}
+
+.tpGridNo {
+  font-weight: 800;
+  color: var(--ink-blue);
+}
+
+.tpGridAmt {
+  font-weight: 800;
+  color: var(--felt-green-rim);
+}
+
+.tpGridRow.voided .tpGridAmt {
+  color: var(--ink-faint);
+  text-decoration: line-through;
+}
+
+.tpGridRow .orderAssign {
+  margin-top: 0;
+  padding: 5px 6px;
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.tpWho {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tpWhoName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tpTag {
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  border: 1px solid;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tpTag.paid {
+  color: var(--felt-green-rim);
+  border-color: rgba(39, 100, 69, 0.4);
+  background: rgba(82, 168, 106, 0.12);
+}
+
+.tpTag.void {
+  color: var(--ball-red);
+  border-color: rgba(178, 63, 48, 0.4);
+}
+
+/* ====== Close table ====== */
+
+.tpFoot {
+  flex: 0 0 auto;
+  display: grid;
+  gap: 5px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hairline-strong);
+}
+
+.tpFoot .tpClose {
+  width: 100%;
+  min-height: 42px;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.25;
+}
+
+/* ====== Whole bill ====== */
+
+.tpPay {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+}
+
+.tpPay .eyebrow {
+  margin: 0;
+}
+
+.tpTenders {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.tpTenders .settleAction {
+  min-height: 46px;
+  font-size: 14px;
+}
+
+.tpTabBtn {
+  width: 100%;
+  min-height: 42px;
+}
+
+.tablePanel .billActions {
+  margin: 10px 0;
+}
+
+.tablePanel .billActions .tpSolo {
+  grid-column: 1 / -1;
+}
+
+/* In and out on one line; the pencil opens the two time fields under it. */
+.tpTimesLine {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--hairline);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  font-feature-settings: "tnum";
+}
+
+.tpTimesLine strong {
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.tpPencil {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+}
+
+.tpPencil.active {
+  background: var(--paper-edge);
+  color: var(--ink);
+}
+
+.timesRow.tpFixTimes {
+  grid-template-columns: 1fr 1fr;
+}
+
+.tpHint.tpDiscountWarn {
+  padding: 8px 0 0;
+  color: var(--ball-red);
+  font-weight: 700;
+}
+
+.tpHint.tpEmptyHint {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--hairline);
+}
+
+/* ====== Table order / bill items / counter order (OrderLines) ====== */
+
+.olSection {
+  padding: 10px 0 12px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.tpBody > .olSection:last-child {
+  border-bottom: 0;
+}
+
+.olHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 2px;
+}
+
+.olHead span {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  font-feature-settings: "tnum";
+}
+
+.olEmpty {
+  margin: 6px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.olLines > .olLine {
+  border-bottom: 1px solid var(--hairline);
+}
+
+.olLines > .olLine:last-of-type {
+  border-bottom: 0;
+}
+
+.olRow {
+  width: 100%;
+  min-height: 32px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 14px;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.olLine.open .olRow {
+  background: var(--paper-warm);
+}
+
+.olRow:focus-visible {
+  outline: 2px solid var(--ball-orange);
+  outline-offset: -2px;
+}
+
+.olRow svg {
+  color: var(--ink-faint);
+}
+
+.olWhat {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.olWhat b {
+  font-weight: 800;
+}
+
+.olWhat em {
+  margin-left: 8px;
+  font-style: normal;
+  font-size: 11px;
+  color: var(--ink-soft);
+  font-feature-settings: "tnum";
+}
+
+.olAmt {
+  min-width: 48px;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--felt-green-rim);
+  font-feature-settings: "tnum";
+}
+
+/* The open line: the stepper, then "Charge 1 to" and the player chips. */
+.olControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 2px 4px 8px;
+  background: var(--paper-warm);
+}
+
+.olControls .qtyControls {
+  grid-template-columns: 28px 24px 28px;
+}
+
+.olControls .qtyControls button {
+  width: 28px;
+  height: 28px;
+}
+
+.olChargeLabel {
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.olChip {
+  min-height: 30px;
+  max-width: 150px;
+  padding: 0 10px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 999px;
+  background: var(--paper-cream);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.olChip.left {
+  border-style: dashed;
+  background: transparent;
+  color: var(--ink-soft);
+}
+
+/* Armed (tap again): red, and wide enough for its words. */
+.olChip.confirming {
+  max-width: none;
+  background: var(--ball-red);
+  border: 1px solid var(--ball-red);
+  color: var(--ball-cue);
+}
+
+.olStatus {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--felt-green-rim);
+}
+
+.olStatus:not(:empty) {
+  padding: 6px 4px 0;
+}
+
+.olRows .olStatus:not(:empty) {
+  padding-bottom: 6px;
+}
+
+.olFoot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--hairline-strong);
+}
+
+.olFoot .ghostAction.olAllBtn {
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+.olNote {
+  flex: 1 1 150px;
+  min-width: 0;
+  text-align: right;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.olFoot > strong {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--ink);
+  font-feature-settings: "tnum";
+}
+
+/* Charge all to…: the header with Cancel, then the chips (tap twice). */
+.olPick {
+  flex: 1 0 100%;
+  display: grid;
+  gap: 6px;
+}
+
+.olPickHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+  font-feature-settings: "tnum";
+}
+
+.olChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+@media (hover: hover) {
+  .olRow:hover {
+    background: var(--paper-warm);
+  }
+
+  .olChip:hover {
+    border-color: var(--brass);
+  }
+
+  .olChip.confirming:hover {
+    border-color: var(--ball-red);
+  }
+}
+
+/* Bigger touch targets on the iPad. */
+@media (pointer: coarse) {
+  .olRow {
+    min-height: 40px;
+  }
+
+  .olControls .qtyControls {
+    grid-template-columns: 34px 26px 34px;
+  }
+
+  .olControls .qtyControls button {
+    width: 34px;
+    height: 34px;
+  }
+
+  .olChip {
+    min-height: 36px;
+    padding: 0 12px;
+    font-size: 13px;
+  }
+
+  .olFoot .ghostAction.olAllBtn {
+    min-height: 40px;
+  }
+}
+
+/* ====== Put on tab ====== */
+
+.tpTabPick {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 2px 2px 4px 0;
+}
+
+.tpTabPick .eyebrow {
+  margin: 6px 0 0;
+}
+
+.tpPickHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tpPickList {
+  display: grid;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.tpPickRow {
+  min-height: 46px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 0;
+  border-top: 1px solid var(--hairline);
+  background: transparent;
+  color: var(--ink);
+  font-family: inherit;
+  text-align: left;
+}
+
+.tpPickRow:hover,
+.tpPickRow:focus-visible,
+.tpPickRow.active {
+  background: var(--paper-warm);
+  outline: none;
+}
+
+.tpPickRow strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.tpPickRow span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  font-feature-settings: "tnum";
+}
+
+.tpPickRow em {
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--orange-ink);
+  font-feature-settings: "tnum";
+}
+
+.tpPickRow .tpGuest {
+  margin-left: 6px;
+  padding: 0 6px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  vertical-align: 2px;
+}
+
+.tpSearch {
+  height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 6px;
+  background: var(--paper-warm);
+  color: var(--ink-soft);
+}
+
+.tpSearch:focus-within {
+  border-color: var(--ball-orange);
+  background: var(--ball-cue);
+}
+
+.tpSearch input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.tpSearch input::placeholder {
+  color: var(--ink-faint);
+  font-weight: 500;
+}
+
+.tpTabPick .muted {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.tpTabConfirm {
+  display: grid;
+  gap: 10px;
+  padding: 10px 0;
+}
+
+.tpTabConfirm .eyebrow {
+  margin: 0;
+  color: var(--orange-ink);
+}
+
+.tpTabConfirm h3 {
+  margin: 0;
+  font-family: "Anton", sans-serif;
+  font-weight: 400;
+  font-size: 24px;
+  line-height: 1.05;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--ink-blue);
+}
+
+.tpTabConfirm > .muted {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.tpTabConfirm .previewActions {
+  margin-top: 4px;
+}
+
+.tpWarnRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tpWarn {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ball-red);
+}
+
+/* ====== iPad: no zoom on inputs, bigger targets ====== */
+
+/* iOS Safari zooms the page when an input with text below 16px gets focus. */
+@media (pointer: coarse) {
+  .tpGridRow .orderAssign,
+  .timeField input,
+  .adjustmentField input,
+  .nameField input,
+  .tpSearch input {
+    min-height: 40px;
+    font-size: 16px;
+  }
+
+  .nameField .rowGhostBtn {
+    min-height: 36px;
+  }
+
+  .tpPencil {
+    min-width: 36px;
+    min-height: 36px;
+    justify-content: center;
+  }
+}

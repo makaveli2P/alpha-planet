@@ -1,229 +1,229 @@
 import { BASE_PLAYERS } from "../data/tables";
-import type { ClosedSession, FrameSummary, HourRevenue, Metrics, OrderLine, PlayerBill, PlayerTotals, RevenueMix, Session, SessionTotals, TableConfig, TablePerformance, TableHistory, TableStatus, TenderTotals } from "../types";
-import { formatHour } from "./format";
+import type {
+  AppState,
+  Charge,
+  Frame,
+  FrameView,
+  HourRevenue,
+  Metrics,
+  RevenueMix,
+  Seat,
+  Session,
+  SessionTotals,
+  TableHistory,
+  TablePerformance,
+  TableStatus,
+  TenderTotals
+} from "../types";
+import { businessDayStart, formatHour } from "./format";
+
+export const COUNTER_ID = "counter";
+const HOUR_MS = 3600000;
 
 export function getActiveSession(sessions: Session[], tableId: string) {
   return sessions.find((session) => session.tableId === tableId && !session.settledAt);
 }
 
-// A loser-pays snooker bill: each frame's table time (and the cafe ordered
-// during it) goes on its lowest scorer's tab, and each player settles their own
-// tab. Pool, the counter, single-payer tables and saved sessions from the
-// retired frames-played split never satisfy this and keep the whole-bill path.
+// Loser pays: frames bill their lowest scorer's tab, and the sitting itself
+// bills nothing. Everything else (pool, the counter, a snooker party paying as
+// one, saved "per-player" sessions) is one whole bill.
 export function isFrameBilled(session: Session): boolean {
   return session.splitMode === "frames";
 }
 
-// Paid player by player — loser-pays, or a saved bill from the retired
-// frames-played split. Only labels a bill paid in mixed tenders as "Split".
-export function paidPerPlayer(session: Session): boolean {
-  return isFrameBilled(session) || session.splitMode === "per-player";
+// ====== Seats and headcount pricing ======
+
+export function presentSeats(session: Session, at: number): Seat[] {
+  return (session.seats ?? []).filter((seat) => seat.joinedAt <= at && (seat.leftAt == null || at < seat.leftAt));
 }
 
-export function getTableStatus(session?: Session): TableStatus {
-  if (!session) return "available";
-  return session.endedAt ? "billing" : "running";
+// Seats still at the table (not left).
+export function seatedNow(session: Session): Seat[] {
+  return (session.seats ?? []).filter((seat) => seat.leftAt == null);
 }
 
-const HOUR_MS = 3600000;
-// When a session ends, an open frame shorter than this (End frame, then End
-// session a few seconds later) is dropped instead of billed — the same "full
-// minutes only" courtesy the whole-table bill gives.
-export const MIN_BILLED_FRAME_MS = 60000;
-
-function joinedAtOf(session: Session, player: PlayerBill): number {
-  return player.joinedAt ?? session.startedAt;
+// One seat per customer who left and is not seated now (their latest leave),
+// latest leave first. A player who left and came back has two seats.
+export function leftSeats(session: Session): Seat[] {
+  const seatedIds = new Set(seatedNow(session).map((seat) => seat.customerId));
+  const byCustomer = new Map<string, Seat>();
+  for (const seat of session.seats ?? []) {
+    if (seat.leftAt == null || seatedIds.has(seat.customerId)) continue;
+    const previous = byCustomer.get(seat.customerId);
+    if (!previous || (previous.leftAt ?? 0) < seat.leftAt) byCustomer.set(seat.customerId, seat);
+  }
+  return Array.from(byCustomer.values()).sort((a, b) => (b.leftAt ?? 0) - (a.leftAt ?? 0));
 }
 
-// Players at the table at `at`: joined at or before it and not yet left.
+// Who can take a table-order charge on a loser-pays sitting: the players at
+// the table, then each player who left (once, even after a return).
+export function tabChargeTargets(session: Session): { seated: Seat[]; left: Seat[] } {
+  if (!isFrameBilled(session)) return { seated: [], left: [] };
+  return { seated: seatedNow(session), left: leftSeats(session) };
+}
+
 export function headcountAt(session: Session, at: number): number {
-  return (session.players ?? []).filter(
-    (player) => joinedAtOf(session, player) <= at && (player.leftAt == null || at < player.leftAt)
-  ).length;
+  return presentSeats(session, at).length;
 }
 
 // The table's rate at a given headcount: the snapshotted base rate covers up to
 // BASE_PLAYERS, and each player above that adds the snapshotted per-player rate.
-export function ratePerHourFor(session: Session, headcount: number): number {
+export function ratePerHourFor(session: Pick<Session, "ratePerHour" | "extraPlayerRatePerHour">, headcount: number): number {
   const extra = Math.max(0, session.extraPlayerRatePerHour ?? 0);
   return session.ratePerHour + Math.max(0, headcount - BASE_PLAYERS) * extra;
 }
 
-// Table time for [from, to), priced by the headcount at every moment: the rate
-// changes the instant a player joins or leaves, and only from then on. The
-// rupee is floored ONCE per frame. Integer ms × integer ₹/hr keeps the sum
-// exact, so float error can't knock a whole rupee off.
-function tableChargeBetween(session: Session, from: number, to: number): number {
+// A frame's headcount at `at`: every customer at the table at any moment from
+// the frame's start `from` until `at`. A player who joins raises it; a player
+// who leaves keeps it until the frame ends; a player who leaves and rejoins
+// counts once. At the frame's end it equals playersDuring (the charge's players).
+export function frameHeadcountAt(session: Session, from: number, at: number): number {
+  const ids = new Set(
+    (session.seats ?? [])
+      .filter((seat) => seat.joinedAt <= at && (seat.leftAt == null || seat.leftAt > from))
+      .map((seat) => seat.customerId)
+  );
+  return ids.size;
+}
+
+// Table time for [from, to) — one frame — priced by the frame's headcount at
+// every moment: the rate rises the instant a new player joins and never drops
+// before the frame ends. The rupee is floored ONCE. Integer ms × integer ₹/hr
+// keeps the sum exact.
+export function tableChargeBetween(session: Session, from: number, to: number): number {
   if (!(to > from)) return 0;
   const cuts = new Set<number>([from, to]);
-  for (const player of session.players ?? []) {
-    const joined = joinedAtOf(session, player);
-    if (joined > from && joined < to) cuts.add(joined);
-    if (player.leftAt != null && player.leftAt > from && player.leftAt < to) cuts.add(player.leftAt);
+  for (const seat of session.seats ?? []) {
+    if (seat.joinedAt > from && seat.joinedAt < to) cuts.add(seat.joinedAt);
   }
   const points = Array.from(cuts).sort((a, b) => a - b);
   let rupeeMs = 0;
   for (let i = 0; i < points.length - 1; i += 1) {
-    rupeeMs += (points[i + 1] - points[i]) * ratePerHourFor(session, headcountAt(session, points[i]));
+    rupeeMs += (points[i + 1] - points[i]) * ratePerHourFor(session, frameHeadcountAt(session, from, points[i]));
   }
   return Math.floor(rupeeMs / HOUR_MS);
 }
 
-// Players at the table at any point during [from, to).
-function playersDuring(session: Session, from: number, to: number): number {
+// The headcount the rate uses now: the running frame's headcount while a frame
+// runs, else the players at the table.
+export function liveHeadcount(session: Session, now: number): number {
+  const frame = runningFrame(session);
+  return frame ? frameHeadcountAt(session, frame.startedAt, now) : headcountAt(session, now);
+}
+
+// Distinct customers at the table at any point during [from, to).
+export function playersDuring(session: Session, from: number, to: number): number {
   const until = Math.max(to, from + 1);
-  return (session.players ?? []).filter(
-    (player) => joinedAtOf(session, player) < until && (player.leftAt == null || player.leftAt > from)
-  ).length;
+  const ids = new Set(
+    (session.seats ?? [])
+      .filter((seat) => seat.joinedAt < until && (seat.leftAt == null || seat.leftAt > from))
+      .map((seat) => seat.customerId)
+  );
+  return ids.size;
 }
 
-export type LinePayer = { kind: "player"; playerId: string } | { kind: "frame"; frameNo: number } | { kind: "open" };
+// ====== Frames ======
 
-// Who pays a cafe line on a loser-pays table: the player it is assigned to;
-// else the lowest scorer of the frame it was folded into; else it rides the
-// open frame. A reference to a player or frame that no longer exists falls
-// through, so no line is ever lost.
-export function linePayer(session: Session, line: OrderLine): LinePayer {
-  if (line.playerId && (session.players ?? []).some((player) => player.id === line.playerId)) {
-    return { kind: "player", playerId: line.playerId };
-  }
-  const frameCount = session.frames?.length ?? 0;
-  if (line.frameNo != null && line.frameNo >= 1 && line.frameNo <= frameCount) {
-    return { kind: "frame", frameNo: line.frameNo };
-  }
-  return { kind: "open" };
+export function frameEnd(frame: Frame, now: number): number {
+  return Math.max(frame.startedAt, frame.endedAt ?? now);
 }
 
-// The player a cafe line is billed to, once that is decided.
-export function linePayerId(session: Session, line: OrderLine): string | undefined {
-  const payer = linePayer(session, line);
-  if (payer.kind === "player") return payer.playerId;
-  if (payer.kind === "frame") return session.frames?.[payer.frameNo - 1]?.loserId;
+export function runningFrame(session: Session): Frame | undefined {
+  return (session.frames ?? []).find((frame) => frame.endedAt == null);
+}
+
+export function awaitingFrame(session: Session): Frame | undefined {
+  return (session.frames ?? []).find((frame) => frame.endedAt != null && !frame.chargeId);
+}
+
+export function frameTableCharge(session: Session, frame: Frame, now: number): number {
+  return tableChargeBetween(session, frame.startedAt, frameEnd(frame, now));
+}
+
+// Seats that can be billed a frame: at the table when it ended (joined at or
+// before its end, not gone before it).
+export function frameCandidates(session: Session, frame: Frame, now: number): Seat[] {
+  const end = frameEnd(frame, now);
+  return (session.seats ?? []).filter((seat) => seat.joinedAt <= end && (seat.leftAt == null || seat.leftAt >= end));
+}
+
+export function frameViews(session: Session, charges: Charge[], now: number): FrameView[] {
+  const byId = new Map(charges.map((charge) => [charge.id, charge]));
+  return (session.frames ?? []).map((frame, index) => {
+    const end = frameEnd(frame, now);
+    const charge = frame.chargeId ? byId.get(frame.chargeId) : undefined;
+    return {
+      frame,
+      no: index + 1,
+      minutes: Math.floor((end - frame.startedAt) / 60000),
+      // A billed frame shows the players saved on its charge (what it was priced for).
+      players: charge?.players ?? playersDuring(session, frame.startedAt, end),
+      tableCharge: charge ? charge.tableCharge : frameTableCharge(session, frame, now),
+      state: frame.chargeId ? "billed" : frame.endedAt != null ? "awaiting" : "running",
+      charge
+    };
+  });
+}
+
+export function tableTabTotal(session: Session): number {
+  return session.orders.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0);
+}
+
+export function getTableStatus(session?: Session): TableStatus {
+  if (!session) return "available";
+  if (isFrameBilled(session)) {
+    if (awaitingFrame(session)) return "awaiting";
+    if (runningFrame(session)) return "running";
+    return "seated";
+  }
+  return session.endedAt ? "billing" : "running";
+}
+
+// Between frames a loser-pays table idles from the later of the last frame's
+// end and the sitting's start.
+export function idleSince(session: Session): number {
+  return (session.frames ?? []).reduce((latest, frame) => Math.max(latest, frame.endedAt ?? 0), session.startedAt);
+}
+
+// Players who can start a frame and do not, for this long, turn the table yellow.
+export const IDLE_ALERT_MS = 10 * 60000;
+
+export type SittingAlert = "order" | "idle";
+
+// Why a loser-pays table between frames needs staff (the needs-action colour):
+// "order" when nobody is seated and the table order is not charged yet, "idle"
+// when 2 or more players (enough for a frame) sit with no frame for
+// IDLE_ALERT_MS. Never while a frame runs or waits for its loser, and never on
+// a whole bill (that has its own "Take payment").
+export function sittingAlert(session: Session, now: number): SittingAlert | undefined {
+  if (!isFrameBilled(session) || session.settledAt || runningFrame(session) || awaitingFrame(session)) return undefined;
+  const seated = seatedNow(session).length;
+  if (seated === 0) return session.orders.length > 0 ? "order" : undefined;
+  if (seated >= 2 && now - idleSince(session) >= IDLE_ALERT_MS) return "idle";
   return undefined;
 }
 
-// Every frame of a loser-pays table: the committed ones, then the open one.
-// While the table runs the open frame always exists (it is the frame being
-// played). Once the session ends it exists only while it still needs a lowest
-// scorer — billable time, or cafe ordered during it or after the last frame.
-export function getFrames(session: Session, now: number): FrameSummary[] {
-  if (!isFrameBilled(session)) return [];
-  const frames = session.frames ?? [];
-  const end = session.endedAt ?? now;
-  const cafeByFrame = new Map<number, number>();
-  let openCafe = 0;
-  for (const line of session.orders) {
-    const payer = linePayer(session, line);
-    const lineTotal = line.unitPrice * line.quantity;
-    if (payer.kind === "frame") cafeByFrame.set(payer.frameNo, (cafeByFrame.get(payer.frameNo) ?? 0) + lineTotal);
-    else if (payer.kind === "open") openCafe += lineTotal;
-  }
+// ====== Totals ======
 
-  const summaries: FrameSummary[] = [];
-  let start = session.startedAt;
-  frames.forEach((frame, index) => {
-    const frameEnd = Math.max(start, frame.endedAt ?? end);
-    // A last frame that ends with the session gets the same courtesy as the
-    // open frame: under a minute (say, after a corrected end time), no table
-    // time is charged.
-    const sliver = frame.endedAt == null && Boolean(session.endedAt) && frameEnd - start < MIN_BILLED_FRAME_MS;
-    const tableCharge = sliver ? 0 : tableChargeBetween(session, start, frameEnd);
-    const cafeTotal = cafeByFrame.get(index + 1) ?? 0;
-    summaries.push({
-      no: index + 1,
-      startedAt: start,
-      endedAt: frameEnd,
-      minutes: Math.floor((frameEnd - start) / 60000),
-      players: playersDuring(session, start, frameEnd),
-      tableCharge,
-      cafeTotal,
-      total: tableCharge + cafeTotal,
-      loserId: frame.loserId,
-      open: false,
-      awaiting: !frame.loserId
-    });
-    start = frameEnd;
-  });
-
-  const openEnd = Math.max(start, end);
-  const openCharge = tableChargeBetween(session, start, openEnd);
-  const billableTime = !session.endedAt || (openEnd - start >= MIN_BILLED_FRAME_MS && openCharge > 0);
-  if (!session.endedAt || billableTime || openCafe > 0) {
-    const tableCharge = billableTime ? openCharge : 0;
-    summaries.push({
-      no: frames.length + 1,
-      startedAt: start,
-      endedAt: openEnd,
-      minutes: Math.floor((openEnd - start) / 60000),
-      players: playersDuring(session, start, openEnd),
-      tableCharge,
-      cafeTotal: openCafe,
-      total: tableCharge + openCafe,
-      open: true,
-      cafeOnly: !billableTime
-    });
-  }
-  return summaries;
-}
-
-export function getOpenFrame(session: Session, now: number) {
-  return getFrames(session, now).find((frame) => frame.open);
-}
-
-// The frame whose End frame was tapped but whose lowest scorer isn't picked.
-export function getAwaitingFrame(session: Session, now: number) {
-  return getFrames(session, now).find((frame) => frame.awaiting);
-}
-
-// Players who can be billed a frame that ended at `frameEnd`: not paid, and
-// still at the table when it ended. When they joined is deliberately NOT
-// checked — staff often type a name late, and the person still played.
-export function frameCandidates(session: Session, frameEnd: number): PlayerBill[] {
-  return (session.players ?? []).filter(
-    (player) => !player.settledAt && (player.leftAt == null || player.leftAt >= frameEnd)
-  );
-}
-
-// An ended loser-pays table with a frame (or trailing cafe) that still has no
-// lowest scorer. Nobody still at the table can settle until it is billed.
-export function hasPendingFrame(session: Session, now: number): boolean {
-  if (!isFrameBilled(session)) return false;
-  const frames = getFrames(session, now);
-  return frames.some((frame) => frame.awaiting) || (Boolean(session.endedAt) && frames.some((frame) => frame.open));
-}
-
-// A player's tab stops moving on its own once they have left the table, or once
-// the session has ended with every frame billed — and never while a frame they
-// could still be billed is awaiting its lowest scorer. Only then can they settle.
-export function isTabFinal(session: Session, player: PlayerBill, now: number): boolean {
-  const awaiting = getAwaitingFrame(session, now);
-  if (awaiting && frameCandidates(session, awaiting.endedAt).some((entry) => entry.id === player.id)) return false;
-  if (player.leftAt) return true;
-  return Boolean(session.endedAt) && !hasPendingFrame(session, now);
-}
-
+// Whole bill: the original formula (round DOWN throughout — full completed
+// minutes, minimum 1; the rupee floored; round-off floored to ₹5).
+// Loser-pays sitting: the money not yet on anyone's tab — the running or
+// waiting frame's table time plus the table tab. It is live, never settled.
 export function calculateSessionTotals(session: Session, now: number): SessionTotals {
   const end = session.endedAt ?? now;
-  // Round DOWN throughout — the house never charges a customer for more time or
-  // money than they used. Full completed minutes (minimum 1), the rupee floored,
-  // and round-off floored to the nearest ₹5 in the customer's favour.
   const minutes = Math.max(1, Math.floor((end - session.startedAt) / 60000));
-  const kitchenTotal = session.orders.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0);
+  const kitchenTotal = tableTabTotal(session);
   if (isFrameBilled(session)) {
-    // Loser-pays: the table charge is the sum of the frames (the open one
-    // included while it counts), and there is no discount or round-off, so the
-    // players' tabs reconcile exactly to the total.
-    const tableCharge = getFrames(session, now).reduce((sum, frame) => sum + frame.tableCharge, 0);
+    const unbilled = (session.frames ?? []).filter((frame) => !frame.chargeId);
+    const tableCharge = unbilled.reduce((sum, frame) => sum + frameTableCharge(session, frame, now), 0);
     const subtotal = tableCharge + kitchenTotal;
     return { minutes, tableCharge, kitchenTotal, subtotal, afterDiscount: subtotal, roundOff: 0, total: subtotal };
   }
-  // Integer-first so floating-point error can't knock a whole-rupee charge down.
   const tableCharge = Math.floor((minutes * session.ratePerHour) / 60);
   const subtotal = tableCharge + kitchenTotal;
   const afterDiscount = Math.max(0, subtotal - session.discount);
   let roundOff = 0;
   let total = afterDiscount;
-  // Round down to the nearest ₹5, but never waive a whole sub-₹5 bill.
   if (session.roundOffEnabled && afterDiscount >= 5) {
     const target = Math.floor(afterDiscount / 5) * 5;
     roundOff = target - afterDiscount;
@@ -232,221 +232,283 @@ export function calculateSessionTotals(session: Session, now: number): SessionTo
   return { minutes, tableCharge, kitchenTotal, subtotal, afterDiscount, roundOff, total };
 }
 
-// Every player's tab on a loser-pays table: the table time and folded-in cafe
-// of each frame they lost, plus the cafe lines assigned to them. The open frame
-// and a frame awaiting its lowest scorer are on nobody's tab yet, so Σ tabs +
-// those = session subtotal.
-export function calculatePlayerBills(session: Session, now: number): PlayerTotals[] {
-  if (!isFrameBilled(session)) return [];
-  const players = session.players ?? [];
-  const acc = players.map(() => ({ framesLost: 0, tableShare: 0, frameCafe: 0, ownCafe: 0 }));
-  const indexById = new Map(players.map((player, index) => [player.id, index]));
-  for (const frame of getFrames(session, now)) {
-    if (frame.open || !frame.loserId) continue;
-    const index = indexById.get(frame.loserId);
-    if (index == null) continue;
-    acc[index].framesLost += 1;
-    acc[index].tableShare += frame.tableCharge;
-    acc[index].frameCafe += frame.cafeTotal;
-  }
-  for (const line of session.orders) {
-    const payer = linePayer(session, line);
-    if (payer.kind !== "player") continue;
-    const index = indexById.get(payer.playerId);
-    if (index != null) acc[index].ownCafe += line.unitPrice * line.quantity;
-  }
-  return players.map((player, index) => ({
-    player,
-    index,
-    ...acc[index],
-    total: acc[index].tableShare + acc[index].frameCafe + acc[index].ownCafe,
-    settled: Boolean(player.settledAt),
-    left: Boolean(player.leftAt)
-  }));
+// ====== Tabs ======
+
+export function isOpenCharge(charge: Charge): boolean {
+  return !charge.paymentId && !charge.voidedAt;
 }
 
-// Clamp any stored/absent payment mode down to the four tender buckets.
+export function chargeCafeTotal(charge: Charge): number {
+  return charge.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
+}
+
+export function openCharges(charges: Charge[], customerId: string): Charge[] {
+  return charges.filter((charge) => charge.customerId === customerId && isOpenCharge(charge));
+}
+
+export function tabTotal(charges: Charge[], customerId: string): number {
+  return openCharges(charges, customerId).reduce((sum, charge) => sum + charge.total, 0);
+}
+
+export function openTabsTotal(charges: Charge[]): number {
+  return charges.filter(isOpenCharge).reduce((sum, charge) => sum + charge.total, 0);
+}
+
+// Where a customer is seated right now, if anywhere.
+export function seatOf(sessions: Session[], customerId: string): { session: Session; seat: Seat } | undefined {
+  for (const session of sessions) {
+    if (session.settledAt) continue;
+    const seat = (session.seats ?? []).find((entry) => entry.customerId === customerId && entry.leftAt == null);
+    if (seat) return { session, seat };
+  }
+  return undefined;
+}
+
+// ====== Metrics ======
+
 function tenderKey(mode: Session["paymentMode"]): keyof TenderTotals {
   return mode === "Cash" || mode === "UPI" || mode === "Card" ? mode : "Unknown";
 }
 
-export function calculateMetrics(sessions: Session[], now: number, tables: TableConfig[]): Metrics {
-  const startOfDay = new Date(now);
-  startOfDay.setHours(0, 0, 0, 0);
-  const dayStartMs = startOfDay.getTime();
-  const todaySessions = sessions.filter((session) => session.settledAt && !session.voidedAt && session.settledAt >= dayStartMs);
+// "Today" is the business day (it turns at 6 AM, not midnight).
+export function startOfDay(now: number): number {
+  return businessDayStart(now);
+}
+
+// Sales = what was earned today: whole bills settled today (paid at the counter
+// or put on a tab) plus frame and cafe charges made today. A "bill" charge is
+// the same money as its settled session, so it is never counted twice.
+// Collected = money taken today: bills paid at the counter + tab payments.
+export function calculateMetrics(state: AppState, now: number): Metrics {
+  const { sessions, tables, charges, payments } = state;
+  const dayStart = startOfDay(now);
+  const isToday = (at?: number) => at != null && at >= dayStart;
+  const tableById = new Map(tables.map((table) => [table.id, table]));
 
   let totalRevenue = 0;
+  let collected = 0;
   let tableRevenue = 0;
   let kitchenRevenue = 0;
   let discounts = 0;
-  let totalMinutes = 0;
-  let tableSessionCount = 0;
   let takeawayRevenue = 0;
   let takeawayOrders = 0;
-  let earliestStart = Infinity;
-  let splitBillCount = 0;
-  let totalFrames = 0;
-  let playersServed = 0;
-  let perPlayerSessions = 0;
-
-  const itemUsage = new Map<string, number>();
+  let billCount = 0;
+  let wholeMinutes = 0;
+  let wholeSittings = 0;
+  let earliest = Infinity;
   const hourTotals = new Array(24).fill(0) as number[];
-  const tenderTotals: TenderTotals = { Cash: 0, UPI: 0, Card: 0, Unknown: 0 };
+  const tender: TenderTotals = { Cash: 0, UPI: 0, Card: 0, Unknown: 0 };
   const mix: RevenueMix = { tableTime: 0, dineInCafe: 0, takeaway: 0, gross: 0 };
-  type TableAcc = { minutes: number; revenue: number; sessions: number; frames: number; players: number };
-  const perTable = new Map<string, TableAcc>();
+  const itemUsage = new Map<string, number>();
+  type Acc = { minutes: number; revenue: number; sessions: number; frames: number; customers: Set<string> };
+  const perTable = new Map<string, Acc>();
+  const acc = (tableId: string): Acc => {
+    let entry = perTable.get(tableId);
+    if (!entry) {
+      entry = { minutes: 0, revenue: 0, sessions: 0, frames: 0, customers: new Set() };
+      perTable.set(tableId, entry);
+    }
+    return entry;
+  };
+  const hourOf = (at: number) => new Date(Math.max(at, dayStart)).getHours();
 
-  for (const session of todaySessions) {
+  // Whole bills settled today (not voided), including those put on a tab. A
+  // manual bill for play on an earlier day adds its money today (the day it was
+  // entered), but not its table time: it goes in the hour it was entered.
+  for (const session of sessions) {
+    if (!session.settledAt || session.voidedAt || isFrameBilled(session) || !isToday(session.settledAt)) continue;
     const totals = calculateSessionTotals(session, now);
+    const pastPlay = Boolean(session.manual) && session.startedAt < dayStart;
+    billCount += 1;
     totalRevenue += totals.total;
     tableRevenue += totals.tableCharge;
     kitchenRevenue += totals.kitchenTotal;
-    // Count the discount that was actually applied, not a value that exceeds the bill.
     discounts += Math.min(session.discount, totals.subtotal);
-    earliestStart = Math.min(earliestStart, session.startedAt);
-
-    // Revenue is attributed to the hour the session STARTED (when the table was
-    // occupied / the guest arrived), so the curve reads as the day's rhythm. An
-    // overnight session that began before midnight is clamped to hour 0 so a
-    // prior-day evening can't spike today's late-night bucket.
-    const startHour = new Date(Math.max(session.startedAt, dayStartMs)).getHours();
-    hourTotals[startHour] += totals.total;
-
-    // Real tables vs the counter drive mutually-exclusive channels (the counter
-    // never adds table time; its whole bill is takeaway) so the mix reconciles.
-    const table = tables.find((entry) => entry.id === session.tableId);
+    if (!pastPlay) earliest = Math.min(earliest, session.startedAt);
+    hourTotals[hourOf(pastPlay ? session.settledAt : session.startedAt)] += totals.total;
+    if (!session.tabChargeId) {
+      collected += totals.total;
+      tender[tenderKey(session.paymentMode)] += totals.total;
+    }
+    for (const line of session.orders) itemUsage.set(line.name, (itemUsage.get(line.name) ?? 0) + line.quantity);
+    const table = tableById.get(session.tableId);
     if (table) {
-      totalMinutes += totals.minutes;
-      tableSessionCount += 1;
       mix.tableTime += totals.tableCharge;
       mix.dineInCafe += totals.kitchenTotal;
-      const acc = perTable.get(table.id) ?? { minutes: 0, revenue: 0, sessions: 0, frames: 0, players: 0 };
-      acc.minutes += totals.minutes;
-      acc.revenue += totals.total;
-      acc.sessions += 1;
-      if (isFrameBilled(session)) {
-        acc.frames += session.frames?.length ?? 0;
-        acc.players += session.players?.length ?? 0;
+      const entry = acc(table.id);
+      entry.revenue += totals.total;
+      if (!pastPlay) {
+        wholeMinutes += totals.minutes;
+        wholeSittings += 1;
+        entry.minutes += totals.minutes;
+        entry.sessions += 1;
       }
-      perTable.set(table.id, acc);
     } else {
       takeawayRevenue += totals.total;
       takeawayOrders += 1;
-      // Gross (pre-discount) so all three channels share one basis and the mix
-      // reconciles to a true gross; the counter has no table time, so its gross
-      // is its kitchen subtotal.
       mix.takeaway += totals.kitchenTotal;
-    }
-
-    if (isFrameBilled(session)) {
-      // Loser-pays bills settle per player — credit each player's tab to the
-      // mode they actually paid with, so a split table isn't lumped under one.
-      perPlayerSessions += 1;
-      totalFrames += session.frames?.length ?? 0;
-      playersServed += session.players?.length ?? 0;
-      const modesUsed = new Set<string>();
-      for (const bill of calculatePlayerBills(session, now)) {
-        tenderTotals[tenderKey(bill.player.paymentMode ?? session.paymentMode)] += bill.total;
-        if (bill.player.paymentMode) modesUsed.add(bill.player.paymentMode);
-      }
-      if (modesUsed.size > 1) splitBillCount += 1;
-    } else {
-      tenderTotals[tenderKey(session.paymentMode)] += totals.total;
-    }
-
-    for (const line of session.orders) {
-      itemUsage.set(line.name, (itemUsage.get(line.name) ?? 0) + line.quantity);
     }
   }
 
+  // Frame and cafe charges made today. A carry charge is money already sold
+  // (left over from a part payment), so it is neither sales nor new tab money.
+  let toTabs = 0;
+  for (const charge of charges) {
+    if (charge.voidedAt || !isToday(charge.createdAt) || charge.kind === "carry") continue;
+    toTabs += charge.total;
+    if (charge.kind === "bill") continue;
+    const cafe = chargeCafeTotal(charge);
+    totalRevenue += charge.total;
+    tableRevenue += charge.tableCharge;
+    kitchenRevenue += cafe;
+    // A manual frame charge is made when it is entered, not played: its frame
+    // (frames loop below) sets the day's first activity when it was today.
+    if (!charge.manual) earliest = Math.min(earliest, charge.createdAt);
+    hourTotals[hourOf(charge.createdAt)] += charge.total;
+    for (const item of charge.items) itemUsage.set(item.name, (itemUsage.get(item.name) ?? 0) + item.quantity);
+    if (charge.tableId && tableById.has(charge.tableId)) {
+      mix.tableTime += charge.tableCharge;
+      mix.dineInCafe += cafe;
+      acc(charge.tableId).revenue += charge.total;
+    } else {
+      mix.takeaway += cafe;
+    }
+    if (charge.kind === "frame") billCount += 1;
+  }
+
+  // Frames played today (by when they started) and who sat at each table.
+  let totalFrames = 0;
+  let frameSittings = 0;
+  const playersToday = new Set<string>();
+  for (const session of sessions) {
+    if (session.voidedAt) continue;
+    const table = tableById.get(session.tableId);
+    for (const seat of session.seats ?? []) {
+      const seatEnd = seat.leftAt ?? session.settledAt ?? now;
+      if (seatEnd >= dayStart && seat.joinedAt <= now) {
+        playersToday.add(seat.customerId);
+        if (table) acc(table.id).customers.add(seat.customerId);
+      }
+    }
+    if (!isFrameBilled(session) || !table) continue;
+    let played = 0;
+    for (const frame of session.frames ?? []) {
+      if (!isToday(frame.startedAt)) continue;
+      played += 1;
+      earliest = Math.min(earliest, frame.startedAt);
+      const entry = acc(table.id);
+      entry.minutes += Math.floor((frameEnd(frame, now) - frame.startedAt) / 60000);
+      entry.frames += 1;
+    }
+    if (played > 0) {
+      totalFrames += played;
+      frameSittings += 1;
+      acc(table.id).sessions += 1;
+    }
+  }
+
+  // Tab payments taken today. A discount given on a tab comes off today's sales.
+  let tabPayments = 0;
+  for (const payment of payments) {
+    if (!isToday(payment.at)) continue;
+    tabPayments += 1;
+    collected += payment.amount;
+    tender[tenderKey(payment.mode)] += payment.amount;
+    const discount = payment.discount ?? 0;
+    discounts += discount;
+    totalRevenue -= discount;
+  }
+
   mix.gross = mix.tableTime + mix.dineInCafe + mix.takeaway;
+  const openMinutes = earliest === Infinity ? 0 : Math.max(1, Math.floor((now - Math.max(earliest, dayStart)) / 60000));
 
-  // "Open so far" = time since the day's first session began; the shared
-  // denominator makes per-table utilization comparable across tables. Clamp to
-  // midnight so an overnight session that STARTED yesterday (but settled today)
-  // can't stretch the denominator across a prior day and crush every bar.
-  const openMinutes = earliestStart === Infinity ? 0 : Math.max(1, Math.floor((now - Math.max(earliestStart, dayStartMs)) / 60000));
-
-  // Money curve across only the hours that saw business, gaps filled with zero
-  // so the area has a continuous baseline; the peak hour is direct-labeled.
   const activeHours = hourTotals.map((total, hour) => ({ total, hour })).filter((entry) => entry.total > 0);
-  let revenueByHour: HourRevenue[] = [];
+  const revenueByHour: HourRevenue[] = [];
   let peakHour: number | undefined;
   if (activeHours.length > 0) {
     const lo = Math.min(...activeHours.map((entry) => entry.hour));
     const hi = Math.max(...activeHours.map((entry) => entry.hour));
-    for (let hour = lo; hour <= hi; hour += 1) {
-      revenueByHour.push({ hour, label: formatHour(hour), total: hourTotals[hour] });
-    }
+    for (let hour = lo; hour <= hi; hour += 1) revenueByHour.push({ hour, label: formatHour(hour), total: hourTotals[hour] });
     peakHour = revenueByHour.reduce((best, cur) => (cur.total > best.total ? cur : best)).hour;
   }
 
-  // Every real table, busiest first, so an idle high-tier table is visibly empty
-  // at the bottom rather than silently omitted.
   const tablePerformance: TablePerformance[] = tables
     .map((table) => {
-      const acc = perTable.get(table.id);
+      const entry = perTable.get(table.id);
       return {
         id: table.id,
         name: table.name,
         game: table.game,
         type: table.type,
-        minutes: acc?.minutes ?? 0,
-        revenue: acc?.revenue ?? 0,
-        sessions: acc?.sessions ?? 0,
-        frames: acc?.frames ?? 0,
-        players: acc?.players ?? 0,
-        utilization: openMinutes > 0 ? Math.min(1, (acc?.minutes ?? 0) / openMinutes) : 0
+        minutes: entry?.minutes ?? 0,
+        revenue: entry?.revenue ?? 0,
+        sessions: entry?.sessions ?? 0,
+        frames: entry?.frames ?? 0,
+        players: entry?.customers.size ?? 0,
+        utilization: openMinutes > 0 ? Math.min(1, (entry?.minutes ?? 0) / openMinutes) : 0
       };
     })
     .sort((a, b) => b.revenue - a.revenue || b.minutes - a.minutes);
 
   return {
     totalRevenue,
+    collected,
+    toTabs,
+    openTabs: openTabsTotal(charges),
+    tabPayments,
     tableRevenue,
     kitchenRevenue,
     discounts,
     takeawayRevenue,
     takeawayOrders,
-    settledSessions: todaySessions.length,
-    averageMinutes: tableSessionCount ? Math.round(totalMinutes / tableSessionCount) : 0,
+    settledSessions: billCount,
+    averageMinutes: wholeSittings ? Math.round(wholeMinutes / wholeSittings) : 0,
     itemRankings: ranked(itemUsage, 5),
     revenueByHour,
     peakHour,
     revenueMix: mix,
-    tenderTotals,
-    splitBillCount,
+    tenderTotals: tender,
     tablePerformance,
     openMinutes,
     totalFrames,
-    avgFrames: perPlayerSessions ? Math.round(totalFrames / perPlayerSessions) : 0,
-    playersServed
+    avgFrames: frameSittings ? Math.round(totalFrames / frameSittings) : 0,
+    playersServed: playersToday.size
   };
 }
 
-export function getTableHistory(sessions: Session[], tableId: string, now: number): TableHistory {
-  const closed = sessions.filter(
-    (session): session is ClosedSession =>
-      session.tableId === tableId && Boolean(session.settledAt) && !session.voidedAt
-  );
-  const startOfDay = new Date(now);
-  startOfDay.setHours(0, 0, 0, 0);
-  const todayClosed = closed.filter((session) => session.settledAt >= startOfDay.getTime());
-  const last = closed.slice().sort((a, b) => b.settledAt - a.settledAt)[0];
-  const lastTotals = last ? calculateSessionTotals(last, now) : undefined;
-  const todayTotals = todayClosed.reduce(
-    (acc, session) => {
+// What a table did today, for its free-table panel.
+export function getTableHistory(state: AppState, tableId: string, now: number): TableHistory {
+  const dayStart = startOfDay(now);
+  let sittings = 0;
+  let frames = 0;
+  let minutes = 0;
+  let revenue = 0;
+  let lastAt: number | undefined;
+  for (const session of state.sessions) {
+    if (session.tableId !== tableId || session.voidedAt || !session.settledAt) continue;
+    // A manual bill was settled when it was entered; the table was last used when its play ended.
+    lastAt = Math.max(lastAt ?? 0, session.manual ? session.endedAt ?? session.settledAt : session.settledAt);
+    if (session.settledAt < dayStart) continue;
+    // A manual bill for an earlier day: its money counts today, its table time does not.
+    const pastPlay = Boolean(session.manual) && session.startedAt < dayStart;
+    if (!pastPlay) sittings += 1;
+    if (isFrameBilled(session)) {
+      for (const frame of session.frames ?? []) {
+        if (frame.startedAt < dayStart) continue;
+        frames += 1;
+        minutes += Math.floor((frameEnd(frame, now) - frame.startedAt) / 60000);
+      }
+    } else {
       const totals = calculateSessionTotals(session, now);
-      return {
-        count: acc.count + 1,
-        minutes: acc.minutes + totals.minutes,
-        revenue: acc.revenue + totals.total
-      };
-    },
-    { count: 0, minutes: 0, revenue: 0 }
-  );
-  return { last, lastTotals, today: todayTotals };
+      if (!pastPlay) minutes += totals.minutes;
+      revenue += totals.total;
+    }
+  }
+  for (const charge of state.charges) {
+    if (charge.tableId !== tableId || charge.voidedAt || charge.kind === "bill" || charge.createdAt < dayStart) continue;
+    revenue += charge.total;
+  }
+  return { lastAt, today: { sittings, frames, minutes, revenue } };
 }
 
 function ranked(map: Map<string, number>, limit: number) {
